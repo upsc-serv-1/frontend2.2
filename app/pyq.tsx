@@ -139,15 +139,33 @@ function StickyHeatmapTable({
                   {rows.map((row) => (
                     <View key={`data-${row.key}`} style={[styles.heatmapDataRow, { borderBottomColor: colors.border + '55' }]}> 
                       {years.map((year) => {
-                        const count = row.byYear[year] || 0;
-                        const opacity = count ? Math.min(0.22 + count / maxOpacityDivisor, 1) : 0.06;
+                        const ratio = count / maxOpacityDivisor;
+                        let bgColor = 'transparent';
+                        let textColor = colors.textTertiary;
+                        let opacity = 1;
+
+                        if (count > 0) {
+                          textColor = '#ffffff';
+                          if (ratio >= 1.5) bgColor = '#1e3a8a';
+                          else if (ratio >= 1.0) bgColor = '#1d4ed8';
+                          else if (ratio >= 0.7) bgColor = '#2563eb';
+                          else if (ratio >= 0.4) bgColor = '#60a5fa';
+                          else {
+                            bgColor = '#bfdbfe';
+                            textColor = '#1e40af';
+                          }
+                        } else {
+                          opacity = 0.06;
+                          bgColor = baseColor;
+                        }
+
                         return (
                           <TouchableOpacity
                             key={`${row.key}-${year}`}
-                            style={[styles.heatmapDataCell, { backgroundColor: baseColor, opacity, borderRightColor: colors.border + '45' }]}
+                            style={[styles.heatmapDataCell, { backgroundColor: bgColor, opacity, borderRightColor: colors.border + '45' }]}
                             onPress={() => onCellPress?.(row.label, year)}
                           >
-                            <Text style={styles.heatCellText}>{count || ''}</Text>
+                            <Text style={[styles.heatCellText, { color: textColor }]}>{count || ''}</Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -848,8 +866,19 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
               <td>${esc(row.label)}</td>
               ${years.map(year => {
                 const count = row.byYear[year] || 0;
-                const alpha = count ? Math.min(0.22 + count / divisor, 1) : 0.06;
-                return `<td style="background: rgba(${rgb}, ${alpha}); color: ${count ? '#ffffff' : '#475569'}; font-weight:700; text-align:center;">${count || ''}</td>`;
+                const ratio = count / divisor;
+                let bg = 'rgba(241, 245, 249, 0.5)';
+                let tc = '#64748b';
+                
+                if (count > 0) {
+                  tc = '#ffffff';
+                  if (ratio >= 1.5) bg = '#1e3a8a';
+                  else if (ratio >= 1.0) bg = '#1d4ed8';
+                  else if (ratio >= 0.7) bg = '#2563eb';
+                  else if (ratio >= 0.4) bg = '#60a5fa';
+                  else { bg = '#bfdbfe'; tc = '#1e40af'; }
+                }
+                return `<td style="background: ${bg} !important; color: ${tc} !important; font-weight:700; text-align:center;">${count || ''}</td>`;
               }).join('')}
             </tr>
           `).join('')}
