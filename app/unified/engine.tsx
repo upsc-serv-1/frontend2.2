@@ -594,12 +594,11 @@ export default function UnifiedQuizEngine() {
         const resIds = typeof params.resultIds === 'string' ? params.resultIds.split(',').filter(id => id.trim().length > 0) : null;
         
         if (resIds && resIds.length > 0) {
-          // If we have specific IDs, chunk those IDs specifically
           const idChunk = resIds.slice(from, from + CHUNK);
           if (idChunk.length === 0) break;
           query = query.in('id', idChunk);
         } else if (params.questionId) {
-          if (from > 0) break; // Only one question
+          if (from > 0) break;
           query = query.eq('id', params.questionId);
         } else {
           // General filters
@@ -626,47 +625,58 @@ export default function UnifiedQuizEngine() {
           if (params.testId) {
             query = query.eq('test_id', params.testId);
           } else {
+            // STRICT ENFORCEMENT: institutes, programs, examStage
             const insts = params.institutes || params.institute;
             const progs = params.programs || params.program;
-            if (insts && insts !== 'All' && insts !== '' && insts !== '[]') {
-              const instList = typeof insts === 'string' ? insts.split(',').filter(Boolean) : [];
-              if (instList.length > 0) {
-                // Pre-fetch test IDs to simplify query
-                const { data: testRows } = await supabase.from('tests').select('id').in('institute', instList);
-                const tIds = (testRows || []).map(t => t.id);
-                if (tIds.length > 0) query = query.in('test_id', tIds);
-                else break;
+            const stage = params.examStage;
+
+            if ((insts && insts !== 'All') || (progs && progs !== 'All') || (stage && stage !== 'All')) {
+              let tQuery = supabase.from('tests').select('id');
+              if (insts && insts !== 'All') {
+                const instList = insts.split(',').filter(Boolean);
+                if (instList.length > 0) tQuery = tQuery.in('institute', instList);
               }
-            }
-            if (progs && progs !== 'All' && progs !== '' && progs !== '[]') {
-              const progList = typeof progs === 'string' ? progs.split(',').filter(Boolean) : [];
-              if (progList.length > 0) {
-                const { data: testRows } = await supabase.from('tests').select('id').in('program_name', progList);
-                const tIds = (testRows || []).map(t => t.id);
-                if (tIds.length > 0) query = query.in('test_id', tIds);
-                else break;
+              if (progs && progs !== 'All') {
+                const progList = progs.split(',').filter(Boolean);
+                if (progList.length > 0) tQuery = tQuery.in('program_name', progList);
               }
+              if (stage && stage !== 'All') {
+                tQuery = tQuery.ilike('series', `%${stage}%`);
+              }
+              
+              const { data: testRows } = await tQuery;
+              const tIds = (testRows || []).map(t => t.id);
+              if (tIds.length > 0) query = query.in('test_id', tIds);
+              else break;
             }
           }
 
           if (params.subject && params.subject !== 'All') query = query.eq('subject', params.subject);
+          
           const sectionVal = params.section;
-          if (sectionVal && sectionVal !== 'All' && sectionVal !== '' && sectionVal !== '[]') {
-            const sectionList = typeof sectionVal === 'string' ? sectionVal.split('|').filter(Boolean) : [];
-            if (sectionList.length > 0) query = query.in('section_group', sectionList);
+          if (sectionVal && sectionVal !== 'All' && sectionVal !== '') {
+            const sectionList = sectionVal.split('|').filter(Boolean).map(s => s === 'General' ? null : s);
+            if (sectionList.includes(null)) {
+              const nonNulls = sectionList.filter(s => s !== null);
+              if (nonNulls.length > 0) query = query.or(`section_group.in.(${nonNulls.join(',')}),section_group.is.null`);
+              else query = query.is('section_group', null);
+            } else {
+              query = query.in('section_group', sectionList);
+            }
           }
+
           const mt = params.microTopics || params.microtopic;
-          if (mt && mt !== 'All' && mt !== '' && mt !== '[]') {
-            const mtList = typeof mt === 'string' ? mt.split('|').filter(Boolean) : [];
+          if (mt && mt !== 'All' && mt !== '') {
+            const mtList = mt.split('|').filter(Boolean);
             if (mtList.length > 0) query = query.in('micro_topic', mtList);
           }
 
-          const pyqM = params.pyqMaster || params.pyqFilter;
+          const pyqM = params.pyqFilter || params.pyqMaster;
           if (pyqM === 'PYQ Only') {
             query = query.eq('is_pyq', true);
-            const pyqCat = params.examCategory || params.pyqCategory;
-            if (pyqCat && pyqCat !== 'All' && pyqCat !== '' && pyqCat !== '[]') {
-              const cats = typeof pyqCat === 'string' ? pyqCat.split(',').filter(Boolean) : [];
+            const pyqCat = params.pyqCategory || params.examCategory;
+            if (pyqCat && pyqCat !== 'All' && pyqCat !== '') {
+              const cats = pyqCat.split(',').filter(Boolean);
               if (cats.length > 0) {
                 const orFilters = [];
                 if (cats.includes('UPSC CSE') || cats.includes('UPSC')) orFilters.push('is_upsc_cse.eq.true');
@@ -679,14 +689,13 @@ export default function UnifiedQuizEngine() {
             query = query.eq('is_pyq', false);
           }
 
-          if (params.specificYear) {
+          if (params.specificYear && params.specificYear !== 'All') {
             query = query.or(`exam_year.eq.${params.specificYear},launch_year.eq.${params.specificYear}`);
           }
 
           const tagsRaw = params.tags;
-          if (tagsRaw && tagsRaw !== 'All' && tagsRaw !== '' && tagsRaw !== '[]' && session?.user?.id) {
-            // Tag filtering requires separate fetch of IDs
-            const tagList = typeof tagsRaw === 'string' ? tagsRaw.split('|').filter(Boolean) : [];
+          if (tagsRaw && tagsRaw !== 'All' && tagsRaw !== '' && session?.user?.id) {
+            const tagList = tagsRaw.split('|').filter(Boolean);
             const orQuery = tagList.map(t => `review_tags.cs.["${t}"]`).join(',');
             const { data: tagIds } = await supabase.from('question_states').select('question_id').eq('user_id', session.user.id).or(orQuery);
             if (tagIds && tagIds.length > 0) {
@@ -695,7 +704,6 @@ export default function UnifiedQuizEngine() {
                query = query.in('id', slicedTagIds);
             } else break;
           } else {
-             // If no specific IDs/tags, use standard range pagination
              query = query.range(from, from + CHUNK - 1);
           }
         }

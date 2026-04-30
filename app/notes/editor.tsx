@@ -153,10 +153,10 @@ export default function NoteEditor() {
 
   const normalizeEditorHtml = (txt: string) => {
     if (!txt) return '';
-
     return txt
-      .replace(/<span[^>]*text-decoration\s*:\s*underline;?[^>]*>(.*?)<\/span>/gi, '<u>$1</u>')
-      .replace(/<span[^>]*background-color\s*:\s*([^;"']+)[^>]*>(.*?)<\/span>/gi, '<mark style="background-color:$1">$2</mark>');
+      .replace(/<span[^>]*text-decoration(?:-line)?\s*:\s*underline;?[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
+      .replace(/<font[^>]*style=['"][^'"]*background-color\s*:\s*([^;'" ]+|rgb\s*\([^)]+\)|rgba\s*\([^)]+\))[^'"]*['"][^>]*>([\s\S]*?)<\/font>/gi, '<mark style="background-color:$1">$2</mark>')
+      .replace(/<span[^>]*style=['"][^'"]*background-color\s*:\s*([^;'" ]+|rgb\s*\([^)]+\)|rgba\s*\([^)]+\))[^'"]*['"][^>]*>([\s\S]*?)<\/span>/gi, '<mark style="background-color:$1">$2</mark>');
   };
 
   // HELPER: Convert Markdown fallback to HTML if needed
@@ -175,9 +175,10 @@ export default function NoteEditor() {
     strong: { fontWeight: 'bold' as const, color: colors.textPrimary },
     i: { fontStyle: 'italic' as const },
     em: { fontStyle: 'italic' as const },
-    u: { textDecorationLine: 'underline' as const },
+    u: { textDecorationLine: 'underline' as const, textDecorationColor: colors.textPrimary, textDecorationStyle: 'solid' as const },
     ins: { textDecorationLine: 'underline' as const },
-    mark: { backgroundColor: '#FFF59D', color: '#000' },
+    span: { color: colors.textPrimary },
+    mark: { color: colors.textPrimary, paddingHorizontal: 2 },
   };
 
   const onBlockLongPress = (item: any, index: number) => {

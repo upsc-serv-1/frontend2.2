@@ -119,6 +119,7 @@ export default function NotesProScreen() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [expandedMicroTopics, setExpandedMicroTopics] = useState<Record<string, boolean>>({});
   const [actionNote, setActionNote] = useState<PilotNoteNode | null>(null);
+  const [folderActionTarget, setFolderActionTarget] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [moveNoteVisible, setMoveNoteVisible] = useState(false);
   const [moveTarget, setMoveTarget] = useState<any>(null);
@@ -282,6 +283,12 @@ export default function NotesProScreen() {
     setMoveNoteVisible(true);
   };
 
+  const openFolderActions = (folder: any) => {
+    Vibration.vibrate(40);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFolderActionTarget(folder);
+  };
+
   const onNoteLongPress = (note: PilotNoteNode) => {
     Vibration.vibrate(50); // Added distinct vibration pulse
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -407,75 +414,55 @@ export default function NotesProScreen() {
     [activeSubjectId, vaultData]
   );
 
+  const descendantIds = useMemo(() => {
+    const ids = new Set<string>();
+    const startId = moveTarget?.id;
+    if (!startId || !vaultData?.allFolders) return ids;
+    const collectChildren = (parentId: string) => {
+      Object.values(vaultData.allFolders || {}).forEach((folder: any) => {
+        if (folder?.parentId === parentId && folder?.id) {
+          ids.add(folder.id);
+          collectChildren(folder.id);
+        }
+      });
+    };
+    collectChildren(startId);
+    return ids;
+  }, [moveTarget, vaultData?.allFolders]);
+
+  const destinationFolders = useMemo(() => {
+    const allFolders = vaultData?.allFolders || {};
+    const rows: Array<{ id: string; name: string; depth: number; parentId: string | null }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      const children = Object.values(allFolders)
+        .filter((folder: any) => (folder?.parentId ?? null) === parentId)
+        .sort((a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || '')));
+      children.forEach((folder: any) => {
+        if (!folder?.id || folder.id === moveTarget?.id || descendantIds.has(folder.id)) return;
+        rows.push({ id: folder.id, name: folder.name || 'Untitled', depth, parentId: folder.parentId ?? null });
+        walk(folder.id, depth + 1);
+      });
+    };
+    walk(null, 0);
+    return rows;
+  }, [vaultData?.allFolders, moveTarget, descendantIds]);
+
 
   const DraggableNoteCard = ({ note }: { note: PilotNoteNode }) => {
     const isPinned = note.is_pinned;
-    const isPressed = useSharedValue(false);
-    const offset = useSharedValue({ x: 0, y: 0 });
-
-    const hasDragged = useSharedValue(false);
-
-    const panGesture = Gesture.Pan()
-      .activateAfterLongPress(400)
-      .onStart(() => {
-        'worklet';
-        isPressed.value = true;
-        hasDragged.value = false;
-        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-      })
-      .onUpdate((e) => {
-        'worklet';
-        offset.value = { x: e.translationX, y: e.translationY };
-        // Mark as dragged if moved more than 20px in any direction
-        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          hasDragged.value = true;
-        }
-      })
-      .onEnd((e) => {
-        'worklet';
-        isPressed.value = false;
-
-        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(openMovePicker)(note);
-        }
-
-        offset.value = { x: 0, y: 0 };
-      });
-
-    const tapGesture = Gesture.Tap()
-      .onEnd(() => {
-        runOnJS(router.push)({ 
-          pathname: '/notes/editor', 
-          params: { id: note.note_id, title: note.title, subject: note.subject } 
-        });
-      });
-
-    const longPressGesture = Gesture.LongPress()
-      .onEnd(() => {
-        runOnJS(setActionNote)(note);
-      });
-
-    const composedGesture = Gesture.Exclusive(panGesture, tapGesture, longPressGesture);
-
-    const animatedStyle = useAnimatedStyle(() => {
-      return {
-        transform: [
-          { translateX: offset.value.x },
-          { translateY: offset.value.y },
-          { scale: withSpring(isPressed.value ? 1.05 : 1) },
-        ],
-        zIndex: isPressed.value ? 1000 : 1,
-        elevation: isPressed.value ? 10 : 0,
-        opacity: isPressed.value ? 0.9 : 1,
-      };
-    });
 
     return (
-      <GestureDetector gesture={composedGesture}>
-        <ReAnimated.View style={[
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => router.push({ 
+          pathname: '/notes/editor', 
+          params: { id: note.note_id, title: note.title, subject: note.subject } 
+        })}
+        onLongPress={() => openMovePicker(note)}
+      >
+        <View style={[
           styles.noteCard, 
           { backgroundColor: colors.surface, borderColor: colors.border },
-          animatedStyle
         ]}>
           <View style={[styles.noteIcon, { backgroundColor: colors.primary + '10' }]}>
             <FileText size={18} color={colors.primary} />
@@ -486,219 +473,72 @@ export default function NotesProScreen() {
           </View>
           {isPinned && <Star size={14} color="#f59e0b" fill="#f59e0b" />}
           <ChevronRight size={16} color={colors.textTertiary} />
-        </ReAnimated.View>
-      </GestureDetector>
+        </View>
+      </TouchableOpacity>
     );
   };
 
   // --- Recursive Tree Components ---
   const TreeMicroTopic = ({ topic, sectionId }: { topic: PilotVaultMicroTopic, sectionId: string }) => {
-    const isHovered = useDerivedValue(() => activeHoverId.value === topic.id);
-    const isPressed = useSharedValue(false);
-    const offset = useSharedValue({ x: 0, y: 0 });
-
-    const panGesture = Gesture.Pan()
-      .activateAfterLongPress(400)
-      .onStart(() => {
-        'worklet';
-        isPressed.value = true;
-        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-      })
-      .onUpdate((e) => {
-        'worklet';
-        offset.value = { x: e.translationX, y: e.translationY };
-      })
-      .onEnd((e) => {
-        'worklet';
-        isPressed.value = false;
-
-        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(openMovePicker)(topic);
-        }
-        offset.value = { x: 0, y: 0 };
-      });
-
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [
-        { translateX: offset.value.x },
-        { translateY: offset.value.y },
-        { scale: withSpring(isHovered.value || isPressed.value ? 1.05 : 1) }
-      ],
-      backgroundColor: isHovered.value ? colors.primary + '10' : 'transparent',
-      zIndex: isPressed.value ? 1000 : 1,
-    }));
-
     return (
-      <GestureDetector gesture={panGesture}>
-        <ReAnimated.View 
-          onLayout={(e) => onFolderLayout(topic.id, e)}
-          style={[styles.treeRow, { paddingLeft: 40 }]}
+      <View style={[styles.treeRow, { paddingLeft: 40 }]}>
+        <TouchableOpacity 
+          onPress={() => router.push({ pathname: '/notes', params: { sid: topic.id } })}
+          onLongPress={() => openFolderActions(topic)}
+          activeOpacity={0.7}
+          style={{ flex: 1 }}
         >
-          <TouchableOpacity 
-            onPress={() => router.push({ pathname: '/notes', params: { sid: topic.id } })}
-            onLongPress={() => {
-              Vibration.vibrate(50);
-              Alert.alert("Folder Actions", `Manage "${topic.name}"`, [
-                { text: "Move Folder", onPress: () => openMovePicker(topic) },
-                { text: "Rename", onPress: () => Alert.alert("Coming Soon", "Rename feature is being optimized.") },
-                { text: "Delete Folder", style: "destructive", onPress: () => Alert.alert("Coming Soon", "Safe-delete is being optimized.") },
-                { text: "Cancel", style: "cancel" }
-              ]);
-            }}
-            activeOpacity={0.7}
-            style={{ flex: 1 }}
-          >
-            <ReAnimated.View style={[{ flexDirection: 'row', alignItems: 'center', flex: 1, padding: 6, borderRadius: 12 }, animatedStyle]}>
-              <View style={[styles.folderIconSmall, { backgroundColor: colors.primary + '10' }]}>
-                 <FolderOpen size={14} color={colors.primary} />
-              </View>
-              <Text style={[styles.treeText, { color: colors.textPrimary }]}>{topic.name}</Text>
-              <Text style={styles.treeCount}>{topic.notes.length} notes</Text>
-              <ChevronRight size={14} color={colors.textTertiary} />
-            </ReAnimated.View>
-          </TouchableOpacity>
-        </ReAnimated.View>
-      </GestureDetector>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, padding: 6, borderRadius: 12 }}>
+            <View style={[styles.folderIconSmall, { backgroundColor: colors.primary + '10' }]}>
+               <FolderOpen size={14} color={colors.primary} />
+            </View>
+            <Text style={[styles.treeText, { color: colors.textPrimary }]}>{topic.name}</Text>
+            <Text style={styles.treeCount}>{topic.notes.length} notes</Text>
+            <ChevronRight size={14} color={colors.textTertiary} />
+          </View>
+        </TouchableOpacity>
+      </View>
     );
   };
 
   const TreeSection = ({ section, subjectId }: { section: PilotVaultSectionGroup, subjectId: string }) => {
-    const isHovered = useDerivedValue(() => activeHoverId.value === section.id);
-    const isPressed = useSharedValue(false);
-    const offset = useSharedValue({ x: 0, y: 0 });
-
-    const panGesture = Gesture.Pan()
-      .activateAfterLongPress(400)
-      .onStart(() => {
-        'worklet';
-        isPressed.value = true;
-        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-      })
-      .onUpdate((e) => {
-        'worklet';
-        offset.value = { x: e.translationX, y: e.translationY };
-      })
-      .onEnd((e) => {
-        'worklet';
-        isPressed.value = false;
-
-        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(openMovePicker)(section);
-        }
-        offset.value = { x: 0, y: 0 };
-      });
-
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [
-        { translateX: offset.value.x },
-        { translateY: offset.value.y },
-        { scale: withSpring(isHovered.value || isPressed.value ? 1.05 : 1) }
-      ],
-      backgroundColor: isHovered.value ? colors.primary + '10' : 'transparent',
-      zIndex: isPressed.value ? 1000 : 1,
-    }));
-
     return (
-      <GestureDetector gesture={panGesture}>
-        <ReAnimated.View 
-          onLayout={(e) => onFolderLayout(section.id, e)}
-          style={[styles.treeRow, { paddingLeft: 20 }]}
+      <View style={[styles.treeRow, { paddingLeft: 20 }]}>
+        <TouchableOpacity 
+          onPress={() => router.push({ pathname: '/notes', params: { sid: section.id } })}
+          onLongPress={() => openFolderActions(section)}
+          activeOpacity={0.7}
+          style={{ flex: 1 }}
         >
-          <TouchableOpacity 
-            onPress={() => router.push({ pathname: '/notes', params: { sid: section.id } })}
-            onLongPress={() => {
-              Vibration.vibrate(50);
-              Alert.alert("Folder Actions", `Manage "${section.name}"`, [
-                { text: "Move Folder", onPress: () => openMovePicker(section) },
-                { text: "Rename", onPress: () => Alert.alert("Coming Soon", "Rename feature is being optimized.") },
-                { text: "Delete Folder", style: "destructive", onPress: () => Alert.alert("Coming Soon", "Safe-delete is being optimized.") },
-                { text: "Cancel", style: "cancel" }
-              ]);
-            }}
-            activeOpacity={0.7}
-            style={{ flex: 1 }}
-          >
-            <ReAnimated.View style={[{ flexDirection: 'row', alignItems: 'center', flex: 1, padding: 8, borderRadius: 12 }, animatedStyle]}>
-              <View style={[styles.folderIconSmall, { backgroundColor: '#10b981' + '10' }]}>
-                 <FolderOpen size={16} color="#10b981" />
-              </View>
-              <Text style={[styles.treeText, { color: colors.textPrimary, fontWeight: '700' }]}>{section.name}</Text>
-              <Text style={styles.treeCount}>{section.totalCount} items</Text>
-              <ChevronRight size={16} color={colors.textTertiary} />
-            </ReAnimated.View>
-          </TouchableOpacity>
-        </ReAnimated.View>
-      </GestureDetector>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, padding: 8, borderRadius: 12 }}>
+            <View style={[styles.folderIconSmall, { backgroundColor: '#10b981' + '10' }]}>
+               <FolderOpen size={16} color="#10b981" />
+            </View>
+            <Text style={[styles.treeText, { color: colors.textPrimary, fontWeight: '700' }]}>{section.name}</Text>
+            <Text style={styles.treeCount}>{section.totalCount} items</Text>
+            <ChevronRight size={16} color={colors.textTertiary} />
+          </View>
+        </TouchableOpacity>
+      </View>
     );
   };
 
   const SubjectCard = ({ subject }: { subject: PilotVaultSubject }) => {
-    const isHovered = useDerivedValue(() => activeHoverId.value === subject.id);
-    const isPressed = useSharedValue(false);
-    const offset = useSharedValue({ x: 0, y: 0 });
-
-    const panGesture = Gesture.Pan()
-      .activateAfterLongPress(400)
-      .onStart(() => {
-        'worklet';
-        isPressed.value = true;
-        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-      })
-      .onUpdate((e) => {
-        'worklet';
-        offset.value = { x: e.translationX, y: e.translationY };
-      })
-      .onEnd((e) => {
-        'worklet';
-        isPressed.value = false;
-
-        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(openMovePicker)(subject);
-        }
-        offset.value = { x: 0, y: 0 };
-      });
-
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [
-        { translateX: offset.value.x },
-        { translateY: offset.value.y },
-        { scale: withSpring(isHovered.value || isPressed.value ? 1.05 : 1) }
-      ],
-      borderColor: isHovered.value ? colors.primary : 'rgba(255, 255, 255, 0.4)',
-      backgroundColor: isHovered.value ? colors.primary + '05' : colors.surface,
-      zIndex: isPressed.value ? 1000 : 1,
-    }));
-
     return (
-      <GestureDetector gesture={panGesture}>
-        <ReAnimated.View 
-          onLayout={(e) => onFolderLayout(subject.id, e)}
-          style={{ width: COLUMN_WIDTH }}
-        >
-          <TouchableOpacity
-            onPress={() => router.push({ pathname: '/notes', params: { sid: subject.id } })}
-            onLongPress={() => {
-              Vibration.vibrate(50);
-              Alert.alert("Notebook Actions", `Manage "${subject.name}"`, [
-                { text: "Move Folder", onPress: () => openMovePicker(subject) },
-                { text: "Rename", onPress: () => Alert.alert("Coming Soon", "Rename feature is being optimized.") },
-                { text: "Delete Folder", style: "destructive", onPress: () => Alert.alert("Coming Soon", "Safe-delete is being optimized.") },
-                { text: "Cancel", style: "cancel" }
-              ]);
-            }}
-            activeOpacity={0.8}
-            style={{ flex: 1 }}
-          >
-            <ReAnimated.View style={[styles.subjectCard, animatedStyle]}>
-              <View style={[styles.subjectIcon, { backgroundColor: colors.primary + '10' }]}>
-                 <FolderOpen size={20} color={colors.primary} />
-              </View>
-              <Text style={[styles.subjectName, { color: colors.textPrimary }]} numberOfLines={1}>{subject.name}</Text>
-              <Text style={[styles.subjectCount, { color: colors.textTertiary }]}>{subject.totalCount} items</Text>
-            </ReAnimated.View>
-          </TouchableOpacity>
-        </ReAnimated.View>
-      </GestureDetector>
+      <TouchableOpacity
+        onPress={() => router.push({ pathname: '/notes', params: { sid: subject.id } })}
+        onLongPress={() => openFolderActions(subject)}
+        activeOpacity={0.8}
+        style={{ width: COLUMN_WIDTH }}
+      >
+        <View style={[styles.subjectCard, { backgroundColor: colors.surface, borderColor: 'rgba(255, 255, 255, 0.4)' }]}>
+          <View style={[styles.subjectIcon, { backgroundColor: colors.primary + '10' }]}>
+             <FolderOpen size={20} color={colors.primary} />
+          </View>
+          <Text style={[styles.subjectName, { color: colors.textPrimary }]} numberOfLines={1}>{subject.name}</Text>
+          <Text style={[styles.subjectCount, { color: colors.textTertiary }]}>{subject.totalCount} items</Text>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -1110,13 +950,13 @@ export default function NotesProScreen() {
       >
         <View style={styles.modalOverlay}>
           <Pressable 
-            style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.4)' }]} 
+            style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]} 
             onPress={() => {
               setMoveNoteVisible(false);
               setTargetFolderId(null);
             }} 
           />
-          <View style={[styles.actionSheet, { backgroundColor: colors.surface, width: '90%', maxHeight: '85%' }]}>
+          <Pressable style={[styles.actionSheet, { backgroundColor: colors.surface, width: '90%', maxHeight: '85%' }]} onPress={() => {}}>
             <View style={styles.sheetHeader}>
               <View style={[styles.sheetIcon, { backgroundColor: '#10B98115' }]}>
                 <FolderInput size={20} color="#10B981" />
@@ -1153,58 +993,42 @@ export default function NotesProScreen() {
                 </TouchableOpacity>
 
                 {/* Hierarchical Folders */}
-                {(() => {
-                  const items: any[] = [];
-                  const rootFolders = Object.values(vaultData.allFolders || {}).filter((f: any) => !f.parentId && f.id !== moveTarget?.id);
-                  rootFolders.forEach((folder: any) => {
-                    items.push({ ...folder, depth: 0 });
-                    const children = Object.values(vaultData.allFolders || {}).filter((f: any) => f.parentId === folder.id && f.id !== moveTarget?.id);
-                    children.forEach((child: any) => {
-                      items.push({ ...child, depth: 1 });
-                      const grandChildren = Object.values(vaultData.allFolders || {}).filter((f: any) => f.parentId === child.id && f.id !== moveTarget?.id);
-                      grandChildren.forEach((gc: any) => {
-                        items.push({ ...gc, depth: 2 });
-                      });
-                    });
-                  });
+                {destinationFolders.map((folder: any) => {
+                  const isSelected = targetFolderId === folder.id;
+                  const depthColors = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6'];
+                  const depthIcons = ['📂', '📁', '📄', '🗂️'];
+                  const accentColor = depthColors[folder.depth] || colors.primary;
                   
-                  return items.map((folder: any) => {
-                    const isSelected = targetFolderId === folder.id;
-                    const depthColors = ['#6366f1', '#10b981', '#f59e0b'];
-                    const depthIcons = ['📂', '📁', '📄'];
-                    const accentColor = depthColors[folder.depth] || colors.primary;
-                    
-                    return (
-                      <TouchableOpacity 
-                        key={folder.id} 
-                        style={[styles.moveItem, { 
-                          borderColor: isSelected ? accentColor : colors.border,
-                          backgroundColor: isSelected ? accentColor + '15' : 'transparent',
-                          marginLeft: folder.depth * 20,
-                          borderWidth: isSelected ? 2 : 1,
-                        }]}
-                        onPress={() => {
-                          setTargetFolderId(folder.id);
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                      >
-                        <Text style={{ fontSize: 16, marginRight: 6 }}>{depthIcons[folder.depth]}</Text>
-                        <View style={[styles.moveItemIcon, { backgroundColor: (isSelected ? accentColor : colors.textTertiary) + '15' }]}>
-                          <FolderOpen size={14} color={isSelected ? accentColor : colors.textTertiary} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.moveItemText, { color: isSelected ? colors.textPrimary : colors.textSecondary, fontWeight: folder.depth === 0 ? '800' : '600' }]}>{folder.name}</Text>
-                          {folder.depth > 0 && (
-                            <Text style={{ fontSize: 10, color: colors.textTertiary, marginTop: 1 }}>
-                              {folder.depth === 1 ? 'Subfolder' : 'Sub-subfolder'}
-                            </Text>
-                          )}
-                        </View>
-                        {isSelected && <Check size={16} color={accentColor} />}
-                      </TouchableOpacity>
-                    );
-                  });
-                })()}
+                  return (
+                    <TouchableOpacity 
+                      key={folder.id} 
+                      style={[styles.moveItem, { 
+                        borderColor: isSelected ? accentColor : colors.border,
+                        backgroundColor: isSelected ? accentColor + '15' : 'transparent',
+                        marginLeft: folder.depth * 20,
+                        borderWidth: isSelected ? 2 : 1,
+                      }]}
+                      onPress={() => {
+                        setTargetFolderId(folder.id);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                    >
+                      <Text style={{ fontSize: 16, marginRight: 6 }}>{depthIcons[folder.depth] || '📁'}</Text>
+                      <View style={[styles.moveItemIcon, { backgroundColor: (isSelected ? accentColor : colors.textTertiary) + '15' }]}>
+                        <FolderOpen size={14} color={isSelected ? accentColor : colors.textTertiary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.moveItemText, { color: isSelected ? colors.textPrimary : colors.textSecondary, fontWeight: folder.depth === 0 ? '800' : '600' }]}>{folder.name}</Text>
+                      </View>
+                      {isSelected && <Check size={16} color={accentColor} />}
+                    </TouchableOpacity>
+                  );
+                })}
+                {destinationFolders.length === 0 && (
+                  <Text style={[styles.emptyHint, { color: colors.textTertiary }]}>
+                    No valid destination folders available.
+                  </Text>
+                )}
               </View>
             </ScrollView>
 
@@ -1226,8 +1050,74 @@ export default function NotesProScreen() {
             >
               {isMoving ? <ActivityIndicator color="#fff" /> : <Text style={styles.moveSubmitText}>Confirm Move</Text>}
             </TouchableOpacity>
-          </View>
+          </Pressable>
         </View>
+      </Modal>
+
+      {/* Folder Actions Modal */}
+      <Modal visible={!!folderActionTarget} transparent animationType="fade" onRequestClose={() => setFolderActionTarget(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setFolderActionTarget(null)}>
+          <RNAnimated.View style={[styles.actionSheet, { backgroundColor: colors.surface }]} onStartShouldSetResponder={() => true}>
+            <View style={styles.sheetHeader}>
+              <View style={[styles.sheetIcon, { backgroundColor: colors.primary + '15' }]}>
+                <FolderOpen size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+                  {folderActionTarget?.name}
+                </Text>
+                <Text style={[styles.sheetSubtitle, { color: colors.textTertiary }]}>Folder Actions</Text>
+              </View>
+              <TouchableOpacity onPress={() => setFolderActionTarget(null)} style={styles.closeBtn}>
+                <X size={20} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.actionsContainer}>
+              <TouchableOpacity 
+                style={styles.actionItem}
+                onPress={() => {
+                  const t = folderActionTarget;
+                  setFolderActionTarget(null);
+                  if (t) openMovePicker(t);
+                }}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#10B98110' }]}>
+                  <FolderInput size={18} color="#10B981" />
+                </View>
+                <Text style={[styles.actionText, { color: colors.textPrimary }]}>Move Folder</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionItem}
+                onPress={() => {
+                  setFolderActionTarget(null);
+                  Alert.alert("Coming Soon", "Rename feature is being optimized.");
+                }}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: colors.primary + '10' }]}>
+                  <Edit size={18} color={colors.primary} />
+                </View>
+                <Text style={[styles.actionText, { color: colors.textPrimary }]}>Rename Folder</Text>
+              </TouchableOpacity>
+
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+              <TouchableOpacity 
+                style={styles.actionItem}
+                onPress={() => {
+                  setFolderActionTarget(null);
+                  Alert.alert("Coming Soon", "Safe-delete is being optimized.");
+                }}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: '#EF444410' }]}>
+                  <Trash2 size={18} color="#EF4444" />
+                </View>
+                <Text style={[styles.actionText, { color: '#EF4444' }]}>Delete Folder</Text>
+              </TouchableOpacity>
+            </View>
+          </RNAnimated.View>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
@@ -1463,6 +1353,12 @@ const styles = StyleSheet.create({
     height: 1,
     marginVertical: 8,
     opacity: 0.5,
+  },
+  emptyHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+    marginBottom: 2,
   },
   moveLabel: {
     fontSize: 10,

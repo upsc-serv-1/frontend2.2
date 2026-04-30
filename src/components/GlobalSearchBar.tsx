@@ -84,17 +84,21 @@ export const GlobalSearchBar: React.FC<GlobalSearchBarProps> = ({
           // 1. Local Search First
           let localResults = await QuestionCache.searchLocal(query, 'Matching', searchFields);
           
-          // Apply filters to local results
-          if (selectedSubjects.length > 0) {
-            localResults = localResults.filter((r: any) => selectedSubjects.includes(r.subject));
+          // Apply strict filtering to local results
+          if (pyqFilter === 'PYQ Only') {
+            localResults = localResults.filter((r: any) => r.is_pyq);
+            if (pyqCategory.length > 0) {
+              localResults = localResults.filter((r: any) => {
+                if (pyqCategory.includes('UPSC') && r.is_upsc_cse) return true;
+                if (pyqCategory.includes('Allied') && r.is_allied) return true;
+                if (pyqCategory.includes('Others') && r.is_others) return true;
+                return false;
+              });
+            }
+          } else if (pyqFilter === 'Non-PYQ') {
+            localResults = localResults.filter((r: any) => !r.is_pyq);
           }
-          if (selectedSections.length > 0) {
-            localResults = localResults.filter((r: any) => selectedSections.includes(r.section_group));
-          }
-          if (selectedMicrotopics.length > 0) {
-            localResults = localResults.filter((r: any) => selectedMicrotopics.includes(r.micro_topic));
-          }
-          
+
           let results = [...localResults];
           
           // 2. Remote Fallback if local is sparse
@@ -110,12 +114,48 @@ export const GlobalSearchBar: React.FC<GlobalSearchBarProps> = ({
                 .from('questions')
                 .select('*')
                 .or(orConditions.join(','))
-                .limit(10);
+                .limit(20);
               
               // Apply filters to remote query
               if (selectedSubjects.length > 0) remoteQuery = remoteQuery.in('subject', selectedSubjects);
-              if (selectedSections.length > 0) remoteQuery = remoteQuery.in('section_group', selectedSections);
+              if (selectedSections.length > 0) {
+                const secs = selectedSections.map(s => s === 'General' ? null : s);
+                if (secs.includes(null)) {
+                  const nonNulls = secs.filter(s => s !== null);
+                  if (nonNulls.length > 0) remoteQuery = remoteQuery.or(`section_group.in.(${nonNulls.join(',')}),section_group.is.null`);
+                  else remoteQuery = remoteQuery.is('section_group', null);
+                } else {
+                  remoteQuery = remoteQuery.in('section_group', secs);
+                }
+              }
               if (selectedMicrotopics.length > 0) remoteQuery = remoteQuery.in('micro_topic', selectedMicrotopics);
+              
+              // PYQ enforcement
+              if (pyqFilter === 'PYQ Only') {
+                remoteQuery = remoteQuery.eq('is_pyq', true);
+                if (pyqCategory.length > 0) {
+                  const fOr = [];
+                  if (pyqCategory.includes('UPSC')) fOr.push('is_upsc_cse.eq.true');
+                  if (pyqCategory.includes('Allied')) fOr.push('is_allied.eq.true');
+                  if (pyqCategory.includes('Others')) fOr.push('is_others.eq.true');
+                  if (fOr.length > 0) remoteQuery = remoteQuery.or(fOr.join(','));
+                }
+              } else if (pyqFilter === 'Non-PYQ') {
+                remoteQuery = remoteQuery.eq('is_pyq', false);
+              }
+
+              // Institute/Program/Stage enforcement
+              if (selectedInstitutes.length > 0 || selectedPrograms.length > 0 || (examStage && examStage !== 'All')) {
+                 let tQ = supabase.from('tests').select('id');
+                 if (selectedInstitutes.length > 0) tQ = tQ.in('institute', selectedInstitutes);
+                 if (selectedPrograms.length > 0) tQ = tQ.in('program_name', selectedPrograms);
+                 if (examStage && examStage !== 'All') tQ = tQ.ilike('series', `%${examStage}%`);
+                 
+                 const { data: tests } = await tQ;
+                 const tIds = (tests || []).map(t => t.id);
+                 if (tIds.length > 0) remoteQuery = remoteQuery.in('test_id', tIds);
+                 else remoteQuery = remoteQuery.in('test_id', ['none']);
+              }
               
               let { data: remote } = await remoteQuery;
               
@@ -127,10 +167,23 @@ export const GlobalSearchBar: React.FC<GlobalSearchBarProps> = ({
                   if (activeFields.includes('Questions')) fuzzyPatterns.push(`question_text.ilike.%${pattern}%`);
                 }
                 if (fuzzyPatterns.length > 0) {
-                  let fuzzyQ = supabase.from('questions').select('*').or(fuzzyPatterns.join(',')).limit(5);
+                  let fuzzyQ = supabase.from('questions').select('*').or(fuzzyPatterns.join(',')).limit(10);
+                  
+                  // Re-apply same filters to fuzzy fallback
                   if (selectedSubjects.length > 0) fuzzyQ = fuzzyQ.in('subject', selectedSubjects);
-                  if (selectedSections.length > 0) fuzzyQ = fuzzyQ.in('section_group', selectedSections);
-                  if (selectedMicrotopics.length > 0) fuzzyQ = fuzzyQ.in('micro_topic', selectedMicrotopics);
+                  if (pyqFilter === 'PYQ Only') {
+                    fuzzyQ = fuzzyQ.eq('is_pyq', true);
+                    if (pyqCategory.length > 0) {
+                      const fOr = [];
+                      if (pyqCategory.includes('UPSC')) fOr.push('is_upsc_cse.eq.true');
+                      if (pyqCategory.includes('Allied')) fOr.push('is_allied.eq.true');
+                      if (pyqCategory.includes('Others')) fOr.push('is_others.eq.true');
+                      if (fOr.length > 0) fuzzyQ = fuzzyQ.or(fOr.join(','));
+                    }
+                  } else if (pyqFilter === 'Non-PYQ') {
+                    fuzzyQ = fuzzyQ.eq('is_pyq', false);
+                  }
+                  
                   const { data: fData } = await fuzzyQ;
                   if (fData) remote = [...(remote || []), ...fData];
                 }

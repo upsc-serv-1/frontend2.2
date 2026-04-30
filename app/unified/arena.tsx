@@ -190,6 +190,7 @@ export default function UnifiedArenaSetup() {
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedYear, setSelectedYear] = useState('All');
   const [timerMode, setTimerMode] = useState<'countdown' | 'stopwatch' | 'none'>('none');
   const [showExamModal, setShowExamModal] = useState(false);
 
@@ -257,6 +258,7 @@ export default function UnifiedArenaSetup() {
     selectedExamStage,
     selectedTestId,
     selectedTags,
+    selectedYear,
     arenaMode,
     activeTab,
     searchQuery,
@@ -473,7 +475,7 @@ export default function UnifiedArenaSetup() {
         RANGES.map(range => 
           supabase
             .from('questions')
-            .select('subject, section_group, micro_topic, test_id')
+            .select('subject, section_group, micro_topic, test_id, exam_year, launch_year, is_pyq, is_upsc_cse, is_allied, is_others')
             .range(range[0], range[1])
         )
       );
@@ -572,13 +574,19 @@ export default function UnifiedArenaSetup() {
            }
         }
 
-        if (selectedInstitute !== 'All' || selectedProgram !== 'All') {
+        if (selectedInstitute !== 'All' || selectedProgram !== 'All' || selectedExamStage !== 'All') {
           let tQuery = supabase.from('tests').select('id');
           if (selectedInstitute !== 'All') tQuery = tQuery.eq('institute', selectedInstitute);
           if (selectedProgram !== 'All') tQuery = tQuery.eq('program_name', selectedProgram);
+          if (selectedExamStage !== 'All') tQuery = tQuery.eq('series', selectedExamStage);
           const { data: testRows } = await tQuery;
           const testIds = (testRows || []).map(t => t.id);
           if (testIds.length > 0) query = query.in('test_id', testIds);
+          else { setQuestionCount(0); setCalculatingCount(false); return; }
+        }
+
+        if (selectedYear !== 'All') {
+          query = query.or(`exam_year.eq.${selectedYear},launch_year.eq.${selectedYear}`);
         }
       } else if (activeTab === 'search') {
         if (!searchQuery && Object.keys(searchFilters).length === 0) {
@@ -630,10 +638,16 @@ export default function UnifiedArenaSetup() {
           }
         }
         if (cf.selectedMicrotopics?.length > 0) query = query.in('micro_topic', cf.selectedMicrotopics);
-        if (cf.selectedInstitutes?.length > 0) {
-           const { data: testRows } = await supabase.from('tests').select('id').in('institute', cf.selectedInstitutes);
+        if (cf.selectedInstitutes?.length > 0 || cf.selectedPrograms?.length > 0 || (cf.examStage && cf.examStage !== 'All')) {
+           let tQuery = supabase.from('tests').select('id');
+           if (cf.selectedInstitutes?.length > 0) tQuery = tQuery.in('institute', cf.selectedInstitutes);
+           if (cf.selectedPrograms?.length > 0) tQuery = tQuery.in('program_name', cf.selectedPrograms);
+           if (cf.examStage && cf.examStage !== 'All') tQuery = tQuery.ilike('series', `%${cf.examStage}%`);
+           
+           const { data: testRows } = await tQuery;
            const testIds = (testRows || []).map(t => t.id);
            if (testIds.length > 0) query = query.in('test_id', testIds);
+           else { setQuestionCount(0); setCalculatingCount(false); return; }
         }
 
         if (term && session?.user?.id) {
@@ -646,6 +660,24 @@ export default function UnifiedArenaSetup() {
             if (noteMatches && noteMatches.length > 0) {
                // Note matches are considered in the final display query
             }
+        }
+
+        // Apply ALL search filters to the count too
+        if (cf.pyqFilter === 'PYQ Only') {
+          query = query.eq('is_pyq', true);
+          if (cf.pyqCategory?.length > 0) {
+            const fOr = [];
+            if (cf.pyqCategory.includes('UPSC')) fOr.push('is_upsc_cse.eq.true');
+            if (cf.pyqCategory.includes('Allied')) fOr.push('is_allied.eq.true');
+            if (cf.pyqCategory.includes('Others')) fOr.push('is_others.eq.true');
+            if (fOr.length > 0) query = query.or(fOr.join(','));
+          }
+        } else if (cf.pyqFilter === 'Non-PYQ') {
+          query = query.eq('is_pyq', false);
+        }
+
+        if (cf.specificYear && cf.specificYear !== 'All') {
+          query = query.or(`exam_year.eq.${cf.specificYear},launch_year.eq.${cf.specificYear}`);
         }
       } else if (activeTab === 'paper') {
         if (selectedTestId) {
@@ -704,6 +736,10 @@ export default function UnifiedArenaSetup() {
 
   const examCategories = ['UPSC CSE', 'Allied Exams', 'Others'];
 
+  const examYears = useMemo(() => {
+    return Array.from(new Set(metadata.map(m => m.exam_year || m.launch_year).filter(Boolean))).sort((a, b) => b.localeCompare(a));
+  }, [metadata]);
+
   const institutes = useMemo(() => {
     return Array.from(new Set(metadata.map(m => m.institute).filter(Boolean))).sort();
   }, [metadata]);
@@ -743,7 +779,7 @@ export default function UnifiedArenaSetup() {
   const [showPreFlight, setShowPreFlight] = useState(false);
 
   // 5. Start Logic
-  const handleLaunch = (mode: 'learning' | 'exam', timer?: string) => {
+  const startQuiz = (mode: 'learning' | 'exam', timer?: string) => {
     setShowPreFlight(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
@@ -757,15 +793,21 @@ export default function UnifiedArenaSetup() {
     let finalParams = {};
 
     if (activeTab === 'search') {
+      const sf = searchFilters;
       finalParams = {
         ...baseParams,
         query: searchQuery,
-        searchMode: searchFilters.searchMode,
-        searchFields: searchFilters.searchFields?.join(','),
-        subject: searchFilters.selectedSubjects?.[0] || 'All',
-        section: searchFilters.selectedSections?.join('|') || '',
-        microtopic: searchFilters.selectedMicrotopics?.join('|') || '',
-        institute: searchFilters.selectedInstitutes?.[0] || 'All',
+        searchMode: sf.searchMode,
+        searchFields: sf.searchFields?.join(','),
+        subject: sf.selectedSubjects?.[0] || 'All',
+        section: sf.selectedSections?.join('|') || '',
+        microTopics: sf.selectedMicrotopics?.join('|') || '',
+        institutes: sf.selectedInstitutes?.join(',') || 'All',
+        programs: sf.selectedPrograms?.join(',') || 'All',
+        examStage: sf.examStage || 'All',
+        pyqFilter: sf.pyqFilter || 'All',
+        pyqCategory: sf.pyqCategory?.join(',') || '',
+        specificYear: sf.specificYear || 'All',
         testId: '', 
       };
     } else {
@@ -773,11 +815,14 @@ export default function UnifiedArenaSetup() {
         ...baseParams,
         subject: selectedSubject,
         section: selectedSection.join('|'),
-        microtopic: selectedMicrotopic.join('|'),
-        pyqMaster: pyqMaster,
+        microTopics: selectedMicrotopic.join('|'),
+        pyqFilter: pyqMaster,
+        pyqCategory: Array.isArray(selectedExamCategory) ? selectedExamCategory.join(',') : (selectedExamCategory || ''),
         examCategory: Array.isArray(selectedExamCategory) ? selectedExamCategory.join(',') : (selectedExamCategory || ''),
-        institute: selectedInstitute,
-        program: selectedProgram,
+        institutes: selectedInstitute,
+        programs: selectedProgram,
+        examStage: selectedExamStage,
+        specificYear: selectedYear,
         tags: selectedTags.join('|'),
         testId: selectedTestId || '',
       };
@@ -788,6 +833,8 @@ export default function UnifiedArenaSetup() {
       params: finalParams
     });
   };
+
+  const handleLaunch = startQuiz;
 
   const renderTopicModal = () => {
     
@@ -1082,6 +1129,14 @@ export default function UnifiedArenaSetup() {
                   onSelect={setSelectedExamCategory}
                   multi={true}
                   showSelectAll={false}
+                  visible={pyqMaster === 'PYQ Only'}
+                />
+                <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 12, opacity: 0.5 }} />
+                <FilterRow
+                  title="Exam Year"
+                  items={examYears}
+                  selected={selectedYear}
+                  onSelect={setSelectedYear}
                   visible={pyqMaster === 'PYQ Only'}
                 />
                 <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 12, opacity: 0.5 }} />

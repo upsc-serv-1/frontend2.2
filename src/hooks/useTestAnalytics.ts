@@ -286,9 +286,19 @@ export function useAggregateTestAnalytics(userId: string | null) {
         const cached = await AsyncStorage.getItem(cacheKey);
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (parsed.lastAttemptId === lastAttemptId && parsed.attemptsCount === attempts.length) {
+          const hasRawQuestions =
+            Array.isArray(parsed.rawAllQuestions) && parsed.rawAllQuestions.length > 0;
+          const hasRawAttempts =
+            Array.isArray(parsed.rawAttemptsForTrend) && parsed.rawAttemptsForTrend.length > 0;
+
+          const isUpToDate =
+            parsed.lastAttemptId === lastAttemptId &&
+            parsed.attemptsCount === attempts.length;
+
+          // Only skip recompute if cache is up-to-date AND has raw arrays needed for filtering.
+          if (isUpToDate && hasRawQuestions && hasRawAttempts) {
             setLoading(false);
-            return; // Cache is still valid and up-to-date
+            return;
           }
         }
 
@@ -364,6 +374,7 @@ export function useAggregateTestAnalytics(userId: string | null) {
     trends,
     cumulativeHierarchy,
     repeatedWeaknesses,
+    allQuestions: rawAllQuestions,
     rawAllQuestions,
     rawAttemptsForTrend,
   };

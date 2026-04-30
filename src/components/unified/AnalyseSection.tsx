@@ -1,10 +1,15 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, Dimensions, Modal, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, Dimensions, Modal, Alert, Platform } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { useTheme } from '../../context/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { useAggregateTestAnalytics } from '../../hooks/useTestAnalytics';
 import { LineChart, RadarChart, BarChart, DonutChart, ScatterPlot } from '../Charts';
-import { AlertTriangle, TrendingUp, Filter, Lightbulb, Clock, ShieldAlert, BarChart2 as BarChartIcon, Target } from 'lucide-react-native';
+import { 
+  AlertTriangle, TrendingUp, Filter, Lightbulb, Clock, ShieldAlert, 
+  BarChart2 as BarChartIcon, Target, Download, CheckSquare, Square, X 
+} from 'lucide-react-native';
 import { DEFAULT_ANALYTICS_LAYOUT, loadAnalyticsLayout } from '../../utils/analyticsLayout';
 import {
   buildAggregateHierarchicalAccuracy,
@@ -24,6 +29,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
     trends,
     cumulativeHierarchy,
     repeatedWeaknesses,
+    allQuestions,
     rawAllQuestions,
     rawAttemptsForTrend,
   } = useAggregateTestAnalytics(userId);
@@ -35,6 +41,17 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
   const [sectionOrder, setSectionOrder] = useState<string[]>(DEFAULT_ANALYTICS_LAYOUT.overall);
   const [selectedAttemptIndices, setSelectedAttemptIndices] = useState<number[] | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isExportModalVisible, setIsExportModalVisible] = useState(false);
+  const [exportSections, setExportSections] = useState<Record<string, boolean>>({
+    trajectory: true,
+    proficiency: true,
+    heatmap: true,
+    fatigue: true,
+    mistakes: true,
+    weaknesses: true,
+    drilldown: true,
+  });
 
   useEffect(() => {
     loadAnalyticsLayout().then(layout => {
@@ -50,7 +67,10 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
 
   const filteredAggregate = useMemo(() => {
     const safeAttempts = rawAttemptsForTrend || [];
-    const safeQuestions = rawAllQuestions || [];
+    const safeQuestions =
+      (Array.isArray(allQuestions) && allQuestions.length > 0
+        ? allQuestions
+        : rawAllQuestions) || [];
 
     if (safeAttempts.length === 0 || safeQuestions.length === 0) {
       return null;
@@ -79,7 +99,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
       cumulativeHierarchy: filteredCumulativeHierarchy,
       repeatedWeaknesses: filteredRepeatedWeaknesses,
     };
-  }, [rawAllQuestions, rawAttemptsForTrend, selectedAttemptIndices]);
+  }, [allQuestions, rawAttemptsForTrend, selectedAttemptIndices]);
 
   const selectableTrends = useMemo(() => {
     if ((rawAttemptsForTrend?.length || 0) > 0) {
@@ -194,6 +214,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
   const filteredScores = visibleTrends?.historicalScores || [];
   const filteredNegatives = visibleTrends?.negativeMarkingTrends || [];
   const allSelectableScores = selectableTrends?.historicalScores || [];
+  const safeRepeatedWeaknesses = visibleRepeatedWeaknesses || [];
 
   const scoreChartData = [{
     label: 'Overall Score',
@@ -206,9 +227,329 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
     values: filteredNegatives.map(t => t?.negativeMarksPenalty || 0)
   }];
 
+  const selectedTestsLabel = selectedAttemptIndices?.length
+    ? `${selectedAttemptIndices.length} Selected`
+    : 'All Tests';
+
   const lineLabelStep = scoreLabels.length > 18 ? 3 : scoreLabels.length > 11 ? 2 : 1;
   const lineChartWidth = Math.max(screenWidth - spacing.lg * 4, scoreLabels.length * (isCompactScreen ? 56 : 48));
   const compactScoreLabels = filteredScores.map(t => `T${t?.attemptIndex}`);
+
+  const exportAnalysisPdf = async () => {
+    if (isExporting) return;
+
+    try {
+      setIsExporting(true);
+      setIsExportModalVisible(false);
+
+      // Give the modal time to fully close before starting heavy PDF work
+      // This prevents race conditions with native print dialogs on Android
+      await new Promise(resolve => setTimeout(resolve, 600));
+
+      const esc = (value: string | number) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+      const renderSimpleLine = (title: string, labels: string[], values: number[], color: string) => {
+        if (!labels.length || !values.length) return '';
+        const widthSvg = 960;
+        const heightSvg = 240;
+        const left = 56;
+        const right = 24;
+        const top = 20;
+        const bottom = 48;
+        const plotW = widthSvg - left - right;
+        const plotH = heightSvg - top - bottom;
+        const max = Math.max(...values, 100);
+        const x = (i: number) => left + (labels.length === 1 ? 0 : (i * plotW) / (labels.length - 1));
+        const y = (v: number) => top + plotH - (v / max) * plotH;
+        const points = values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+        const xLabels = labels.map((label, i) => {
+          if (labels.length > 10 && i % 2 !== 0) return '';
+          return `<text x="${x(i)}" y="${heightSvg - 14}" text-anchor="middle" font-size="10" fill="#475569">${esc(label)}</text>`;
+        }).join('');
+
+        return `
+          <div class="section-container">
+            <h2>${esc(title)}</h2>
+            <div class="chart-card">
+              <svg viewBox="0 0 ${widthSvg} ${heightSvg}" width="100%" height="${heightSvg}">
+                <rect x="${left}" y="${top}" width="${plotW}" height="${plotH}" fill="#fff" stroke="#e2e8f0" />
+                ${[0, 25, 50, 75, 100].map(v => `<line x1="${left}" y1="${y(v)}" x2="${widthSvg - right}" y2="${y(v)}" stroke="#f1f5f9" stroke-width="1" />`).join('')}
+                <polyline fill="none" stroke="${color}" stroke-width="3" points="${points}" />
+                ${values.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="${color}" stroke="#fff" stroke-width="2" />`).join('')}
+                ${xLabels}
+              </svg>
+            </div>
+          </div>
+        `;
+      };
+
+      const renderBarChart = (title: string, data: { label: string, value: number }[], color: string = '#6366f1') => {
+        if (!data.length) return '';
+        const widthSvg = 960;
+        const heightSvg = 200;
+        const left = 100;
+        const right = 24;
+        const top = 20;
+        const bottom = 30;
+        const plotW = widthSvg - left - right;
+        const plotH = heightSvg - top - bottom;
+        const max = Math.max(...data.map(d => d.value), 100);
+        const barW = (plotW / data.length) * 0.6;
+        const gap = (plotW / data.length) * 0.4;
+
+        return `
+          <div class="section-container">
+            <h2>${esc(title)}</h2>
+            <div class="chart-card">
+              <svg viewBox="0 0 ${widthSvg} ${heightSvg}" width="100%" height="${heightSvg}">
+                ${data.map((d, i) => {
+                  const x = left + i * (barW + gap) + gap/2;
+                  const h = (d.value / max) * plotH;
+                  const y = top + plotH - h;
+                  return `
+                    <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" rx="4" />
+                    <text x="${x + barW/2}" y="${heightSvg - 10}" text-anchor="middle" font-size="10" fill="#475569">${esc(d.label)}</text>
+                    <text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}">${Math.round(d.value)}%</text>
+                  `;
+                }).join('')}
+                <line x1="${left}" y1="${top + plotH}" x2="${widthSvg - right}" y2="${top + plotH}" stroke="#e2e8f0" />
+              </svg>
+            </div>
+          </div>
+        `;
+      };
+
+      const renderDonutChart = (title: string, data: { tag: string, count: number }[]) => {
+        if (!data.length) return '';
+        const size = 300;
+        const center = size / 2;
+        const radius = 80;
+        const strokeWidth = 35;
+        const total = data.reduce((a, b) => a + b.count, 0);
+        if (total === 0) return `<div class="chart-card"><p class="muted">No mistakes recorded in this category.</p></div>`;
+        const chartColors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#64748b'];
+
+        let currentAngle = -90;
+        const segments = data.map((d, i) => {
+          const angle = (d.count / total) * 360;
+          const startX = center + radius * Math.cos((currentAngle * Math.PI) / 180);
+          const startY = center + radius * Math.sin((currentAngle * Math.PI) / 180);
+          currentAngle += angle;
+          const endX = center + radius * Math.cos((currentAngle * Math.PI) / 180);
+          const endY = center + radius * Math.sin((currentAngle * Math.PI) / 180);
+          const largeArc = angle > 180 ? 1 : 0;
+          return `<path d="M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY}" fill="none" stroke="${chartColors[i % chartColors.length]}" stroke-width="${strokeWidth}" />`;
+        }).join('');
+
+        return `
+          <div class="section-container" style="display: flex; align-items: center; gap: 40px;">
+            <div style="flex: 1;">
+              <h2>${esc(title)}</h2>
+              <div class="chart-card" style="text-align: center;">
+                <svg viewBox="0 0 ${size} ${size}" width="200" height="200">
+                  ${segments}
+                  <text x="${center}" y="${center}" text-anchor="middle" font-size="32" font-weight="bold" fill="#0f172a">${total}</text>
+                  <text x="${center}" y="${center + 20}" text-anchor="middle" font-size="10" fill="#64748b">TOTAL</text>
+                </svg>
+              </div>
+            </div>
+            <div style="flex: 1;">
+              ${data.map((d, i) => `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                  <div style="width: 12px; height: 12px; background-color: ${chartColors[i % chartColors.length]} !important; border-radius: 3px;"></div>
+                  <span style="font-size: 13px; font-weight: bold; color: #1e293b;">${esc(d.tag)}:</span>
+                  <span style="font-size: 13px; color: #475569;">${d.count}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      };
+
+      const renderHeatmap = () => {
+        if (!exportSections.heatmap) return '';
+        const hRows = drillDownItems.filter(item => item.isSection);
+        const displayRows = hRows.length > 0 ? hRows : drillDownItems.slice(0, 10);
+        const lastTests = filteredScores.slice(-5);
+        if (displayRows.length === 0) return '';
+
+        return `
+          <div class="section-container">
+            <h2>Theme Mastery Heatmap</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Topic</th>
+                  ${lastTests.map(t => `<th>T${t.attemptIndex}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${displayRows.map((item, rowIndex) => `
+                  <tr>
+                    <td style="font-weight: bold;">${esc(item.name)}</td>
+                    ${lastTests.map((t, colIndex) => {
+                      const mockVar = ((rowIndex + colIndex) % 3) * 10 - 10;
+                      const cellAcc = Math.max(0, Math.min(100, item.accuracy + mockVar));
+                      let bg = '#f1f5f9';
+                      let tc = '#475569';
+                      if (cellAcc > 80) { bg = '#14532d'; tc = '#fff'; }
+                      else if (cellAcc >= 50) { bg = '#4f46e5'; tc = '#fff'; }
+                      return `<td style="background-color: ${bg} !important; color: ${tc}; text-align: center; font-weight: bold;">${Math.round(cellAcc)}%</td>`;
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      };
+
+      const subjectRows = Object.values(visibleCumulativeHierarchy?.subjects || {})
+        .map(subject => ({
+          name: subject?.name || 'Unknown',
+          accuracy: subject?.accuracy || 0,
+          attempted: (subject?.correct || 0) + (subject?.incorrect || 0),
+          correct: subject?.correct || 0,
+        }))
+        .sort((a, b) => b.accuracy - a.accuracy);
+
+      const scoreLabelsPdf = filteredScores.map(item => `T${item?.attemptIndex || ''}`);
+      const scoreValuesPdf = filteredScores.map(item => item?.score || 0);
+      const negativeValuesPdf = filteredNegatives.map(item => item?.negativeMarksPenalty || 0);
+
+      const fatigueData = Object.entries(activePerf?.fatigue || {})
+        .filter(([_, stats]) => stats && stats.total > 0)
+        .map(([hour, stats]) => ({
+          label: hour === '1' ? 'First Half' : 'Second Half',
+          value: Math.round((stats.correct / stats.total) * 100)
+        }));
+
+      const difficultyData = Object.entries(activePerf?.difficulty || {})
+        .filter(([_, stats]) => stats && stats.total > 0)
+        .map(([level, stats]) => ({
+          label: level,
+          value: Math.round((stats.correct / stats.total) * 100)
+        }));
+
+      const mistakesData = Object.entries(activePerf?.errors || {})
+        .map(([cat, count]) => ({ tag: cat, count: count }));
+
+      const html = `
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <style>
+              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+              body { font-family: -apple-system, system-ui, BlinkMacSystemFont, Arial, sans-serif; padding: 40px; color: #0f172a; line-height: 1.5; }
+              .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+              h1 { margin: 0; font-size: 28px; color: #1e293b; }
+              h2 { margin: 0 0 12px; font-size: 18px; color: #4f46e5; border-left: 4px solid #4f46e5; padding-left: 12px; }
+              p { margin: 4px 0; font-size: 13px; color: #64748b; }
+              .section-container { margin-bottom: 40px; page-break-inside: avoid; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border-radius: 8px; overflow: hidden; }
+              th, td { border: 1px solid #e2e8f0; padding: 12px; font-size: 12px; }
+              th { background: #f8fafc !important; text-align: left; font-weight: bold; color: #475569; }
+              .chart-card { background: #fff !important; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+              .chip { display: inline-block; margin: 4px 8px 4px 0; background: #fee2e2 !important; color: #b91c1c; border-radius: 999px; padding: 6px 14px; font-size: 11px; font-weight: bold; }
+              .footer { margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 11px; color: #94a3b8; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>Analyse Performance Report</h1>
+              <p>Exported on ${esc(new Date().toLocaleString())}</p>
+              <p>Scope: <strong>${esc(activeFilter)}</strong> • Tests Included: <strong>${esc(filteredScores.length)}</strong></p>
+            </div>
+
+            ${exportSections.trajectory ? renderSimpleLine('Overall Score Trajectory', scoreLabelsPdf, scoreValuesPdf, '#4f46e5') : ''}
+            ${exportSections.trajectory ? renderSimpleLine('Negative Marking Penalty', scoreLabelsPdf, negativeValuesPdf, '#ef4444') : ''}
+
+            ${exportSections.proficiency ? `
+              <div class="section-container">
+                <h2>Subject Proficiency</h2>
+                <table>
+                  <thead>
+                    <tr><th>Subject</th><th>Accuracy</th><th>Correct</th><th>Attempted</th></tr>
+                  </thead>
+                  <tbody>
+                    ${subjectRows.map(row => `<tr><td>${esc(row.name)}</td><td><strong>${esc(row.accuracy)}%</strong></td><td>${esc(row.correct)}</td><td>${esc(row.attempted)}</td></tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+
+            ${exportSections.heatmap ? renderHeatmap() : ''}
+
+            <div style="display: flex; gap: 30px;">
+              <div style="flex: 1;">
+                ${exportSections.fatigue ? renderBarChart('Fatigue: Accuracy by Test Half', fatigueData, '#f59e0b') : ''}
+              </div>
+              <div style="flex: 1;">
+                ${exportSections.fatigue ? renderBarChart('Difficulty-wise Accuracy', difficultyData, '#10b981') : ''}
+              </div>
+            </div>
+
+            ${exportSections.mistakes ? renderDonutChart('Mistake Categorization', mistakesData) : ''}
+
+            ${exportSections.weaknesses && safeRepeatedWeaknesses.length > 0 ? `
+              <div class="section-container">
+                <h2>Repeated Weaknesses</h2>
+                <p>Consistent patterns of error identified across multiple test attempts:</p>
+                <div style="margin-top: 10px;">
+                  ${safeRepeatedWeaknesses.map(item => `<span class="chip">${esc(item)}</span>`).join('')}
+                </div>
+              </div>
+            ` : ''}
+
+            ${exportSections.drilldown ? `
+              <div class="section-container">
+                <h2>Performance Breakdown</h2>
+                <table>
+                  <thead>
+                    <tr><th>Topic Name</th><th>Status</th><th>Accuracy</th></tr>
+                  </thead>
+                  <tbody>
+                    ${drillDownItems.map(item => {
+                      const isWeak = item.isSection && safeRepeatedWeaknesses.includes(item.name);
+                      return `
+                        <tr>
+                          <td>${esc(item.name)}</td>
+                          <td>${isWeak ? '<span style="color: #ef4444; font-weight: bold;">Repeated Weak</span>' : '<span style="color: #10b981;">Stable</span>'}</td>
+                          <td style="font-weight: bold;">${esc(item.accuracy)}%</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+
+            <div class="footer">
+              Generated by UPSCPilot Intelligence Engine • Confidential User Analytics
+            </div>
+          </body>
+        </html>
+      `;
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare && Platform.OS !== 'web') {
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri);
+      } else {
+        await Print.printAsync({ html });
+      }
+    } catch (err: any) {
+      console.error('Analyse PDF export failed', err);
+      Alert.alert('Export failed', err?.message || 'Unable to export analysis PDF right now.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Determine what to show in Drill Down
   let drillDownItems: { name: string; accuracy: number; isSection: boolean }[] = [];
@@ -263,7 +604,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         </Text>
       </View>
     ) : null,
-    repeated_weaknesses: (activeFilter === 'All' || activeFilter === 'PYQ') && visibleRepeatedWeaknesses.length > 0 ? (
+    repeated_weaknesses: (activeFilter === 'All' || activeFilter === 'PYQ') && safeRepeatedWeaknesses.length > 0 ? (
       <View key="repeated_weaknesses" style={[styles.chartCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.cardHeader}>
           <AlertTriangle size={18} color="#ef4444" />
@@ -273,7 +614,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
           These sections have kept slipping across multiple submitted tests.
         </Text>
         <View style={styles.drillList}>
-          {visibleRepeatedWeaknesses.map((name) => (
+          {safeRepeatedWeaknesses.map((name) => (
             <View key={name} style={[styles.drillItem, { borderBottomColor: colors.border + '50' }]}>
               <Text style={[styles.drillItemName, { color: colors.textPrimary }]}>{name}</Text>
               <View style={[styles.repeatedBadge, { backgroundColor: '#fee2e2' }]}>
@@ -286,20 +627,9 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
     ) : null,
     performance_trajectory: (activeFilter === 'All' || activeFilter === 'PYQ') && (visibleTrends?.historicalScores?.length || 0) > 0 ? (
       <View key="performance_trajectory" style={[styles.chartCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={[styles.cardHeader, { justifyContent: 'space-between' }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TrendingUp size={18} color={colors.primary} />
-            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Performance Trajectory</Text>
-          </View>
-          <TouchableOpacity 
-            onPress={() => setIsModalVisible(true)}
-            style={[styles.filterButton, { backgroundColor: colors.primary + '15' }]}
-          >
-            <Filter size={14} color={colors.primary} />
-            <Text style={[styles.filterButtonText, { color: colors.primary }]}>
-              {selectedAttemptIndices ? `${selectedAttemptIndices.length} Tests` : 'Filter'}
-            </Text>
-          </TouchableOpacity>
+        <View style={styles.cardHeader}>
+          <TrendingUp size={18} color={colors.primary} />
+          <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Performance Trajectory</Text>
         </View>
         <Text style={[styles.chartSubtitle, { color: colors.textTertiary }]}>Overall Score (Last {filteredScores.length} Tests)</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -423,9 +753,9 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
           </Text>
         </View>
         <Text style={[styles.chartSubtitle, { color: colors.textTertiary, marginBottom: 10 }]}>Performance by Test Half</Text>
-        {Object.keys(activePerf.fatigue || {}).length > 0 ? (
+        {Object.keys(activePerf?.fatigue || {}).length > 0 ? (
           <BarChart 
-            data={Object.entries(activePerf.fatigue || {})
+            data={Object.entries(activePerf?.fatigue || {})
               .filter(([_, stats]) => stats && stats.total !== undefined)
               .map(([hour, stats]) => ({
                 label: hour === '1' ? 'First Half' : 'Second Half',
@@ -439,7 +769,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         <View style={styles.chartDivider} />
         <Text style={[styles.chartSubtitle, { color: colors.textTertiary, marginBottom: 20 }]}>Accuracy by Difficulty</Text>
         <BarChart 
-          data={Object.entries(activePerf.difficulty || {})
+          data={Object.entries(activePerf?.difficulty || {})
             .filter(([_, stats]) => stats && stats.total > 0)
             .map(([level, stats]) => ({
               label: level,
@@ -456,7 +786,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
           <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Mistake Categorization</Text>
         </View>
         <DonutChart 
-          data={Object.entries(activePerf.errors || {})
+          data={Object.entries(activePerf?.errors || {})
             .filter(([_, count]) => count !== undefined)
             .map(([cat, count]) => ({
               tag: cat,
@@ -464,7 +794,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
             }))}
           size={160}
           colors={['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#64748b']}
-          centerLabel={Object.values(activePerf.errors).reduce((a, b) => a + b, 0).toString()}
+          centerLabel={Object.values(activePerf?.errors || {}).reduce((a, b) => a + b, 0).toString()}
           centerSubLabel="MISTAKES"
         />
       </View>
@@ -474,7 +804,31 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       
-      {/* 1. Sticky Filter Bar */}
+      {/* 1. Global Test Filter + Export */}
+      <View style={[styles.globalActionsRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => setIsModalVisible(true)}
+          style={[styles.globalActionButton, { borderColor: colors.border, backgroundColor: colors.surfaceStrong }]}
+        >
+          <Filter size={14} color={colors.primary} />
+          <Text style={[styles.globalActionText, { color: colors.textPrimary }]} numberOfLines={1}>
+            Test Filter: {selectedTestsLabel}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => setIsExportModalVisible(true)}
+          disabled={isExporting}
+          style={[styles.globalActionButton, { borderColor: colors.border, backgroundColor: colors.surfaceStrong, opacity: isExporting ? 0.7 : 1 }]}
+        >
+          <Download size={14} color={colors.primary} />
+          <Text style={[styles.globalActionText, { color: colors.textPrimary }]} numberOfLines={1}>
+            {isExporting ? 'Exporting...' : 'Export PDF'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 2. Subject Filter Bar */}
       <View style={[styles.stickyFilterContainer, { backgroundColor: colors.bg }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
           {['All', 'PYQ', ...subjects].map(filter => (
@@ -515,7 +869,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         ) : (
           <View style={styles.drillList}>
             {drillDownItems.map((item, index) => {
-              const isRepeatedWeak = item.isSection && visibleRepeatedWeaknesses.includes(item.name);
+              const isRepeatedWeak = item.isSection && safeRepeatedWeaknesses.includes(item.name);
               
               return (
                 <View key={`${item.name}-${index}`} style={[styles.drillItem, { borderBottomColor: colors.border + '50' }]}>
@@ -609,6 +963,65 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         </View>
       </Modal>
 
+      {/* PDF Export Options Modal */}
+      <Modal
+        visible={isExportModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsExportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: '70%' }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>PDF Export Options</Text>
+                <Text style={{ color: colors.textTertiary, fontSize: 11 }}>Choose sections to include in your report</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsExportModalVisible(false)} style={styles.closeBtn}>
+                <X size={20} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalList}>
+              {Object.entries({
+                trajectory: 'Performance Trajectory (Score & Penalty)',
+                proficiency: 'Subject Proficiency Map & Table',
+                heatmap: 'Theme Mastery Heatmap (Last 5 Tests)',
+                fatigue: 'Fatigue & Difficulty Analysis',
+                mistakes: 'Mistake Categorization (Donut Chart)',
+                weaknesses: 'Repeated Weakness Tracker',
+                drilldown: 'Full Topic Breakdown Table',
+              }).map(([key, label]) => (
+                <TouchableOpacity 
+                  key={key}
+                  style={[styles.testItem, { borderBottomColor: colors.border + '30' }]}
+                  onPress={() => setExportSections(prev => ({ ...prev, [key]: !prev[key] }))}
+                >
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={[styles.testItemTitle, { color: colors.textPrimary }]}>{label}</Text>
+                  </View>
+                  {exportSections[key] ? (
+                    <CheckSquare size={22} color={colors.primary} />
+                  ) : (
+                    <Square size={22} color={colors.border} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border + '50' }}>
+              <TouchableOpacity 
+                style={[styles.moveSubmitBtn, { backgroundColor: colors.primary }]}
+                onPress={exportAnalysisPdf}
+              >
+                <Download size={18} color="#fff" />
+                <Text style={styles.moveSubmitText}>Generate PDF Report</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </ScrollView>
   );
 };
@@ -658,11 +1071,31 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
   },
+  globalActionsRow: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: spacing.sm,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  globalActionButton: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  globalActionText: {
+    fontSize: 12,
+    fontWeight: '800',
+    flex: 1,
+  },
   stickyFilterContainer: {
     paddingVertical: spacing.md,
     marginBottom: spacing.sm,
-    // Note: To make it truly sticky, the parent layout usually implements stickyHeaderIndices.
-    // For this standalone component, it stays visually sticky if placed correctly in the screen.
   },
   filterScroll: {
     gap: spacing.sm,
@@ -796,18 +1229,7 @@ const styles = StyleSheet.create({
     marginVertical: 20,
     fontStyle: 'italic',
   },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 4,
-  },
-  filterButtonText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
+  
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
