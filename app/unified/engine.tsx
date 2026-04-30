@@ -1064,12 +1064,14 @@ export default function UnifiedQuizEngine() {
     if (!session?.user?.id) return;
     setSavingFlashcard(prev => ({ ...prev, [q.id]: true }));
     try {
-      await FlashcardSvc.createFlashcardFromQuestion(session.user.id, q);
+      const qAny = q as any;
+      await FlashcardSvc.createFromQuestion(session.user.id, {
+        ...qAny,
+        institute: qAny.institute || qAny.tests?.institute || qAny.provider,
+        exam_year: qAny.exam_year || qAny.year,
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert(
-        'Added to Flashcards',
-        `Front: question + 4 options\nBack: correct answer + explanation\n\nDeck: ${q.subject || 'General'} → ${q.micro_topic || 'General'}`,
-      );
+      Alert.alert('Added', 'Flashcard added to your deck.');
     } catch (err: any) {
       console.error("Flashcard Error:", err);
       Alert.alert("Error", "Failed to add to Flashcards. " + (err.message || ''));
