@@ -1572,6 +1572,23 @@ export default function UnifiedQuizEngine() {
             );
           })}
         </View>
+        
+        {arenaMode === 'learning' && (
+          <TouchableOpacity
+            style={[styles.quickFlashBtn, { backgroundColor: colors.primary + '12', borderColor: colors.primary + '35' }]}
+            onPress={() => handleAddToFlashcards(item)}
+            disabled={!!savingFlashcard[item.id]}
+          >
+            {!!savingFlashcard[item.id] ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <>
+                <Zap size={15} color={colors.primary} />
+                <Text style={[styles.quickFlashBtnText, { color: colors.primary }]}>Quick Add to Flashcard</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
 
         {arenaMode === 'learning' && !showExplanation && (
           <TouchableOpacity 
@@ -1756,20 +1773,6 @@ export default function UnifiedQuizEngine() {
                  >
                     <BookOpen size={16} color={colors.primary} />
                     <Text style={[styles.actionBtnText, { color: colors.primary }]}>Notebook</Text>
-                 </TouchableOpacity>
-                 <TouchableOpacity 
-                   style={[styles.actionBtn, { backgroundColor: colors.primary + '15' }]}
-                   onPress={() => handleAddToFlashcards(item)}
-                   disabled={savingFlashcard[item.id]}
-                 >
-                    {savingFlashcard[item.id] ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <>
-                        <Zap size={16} color={colors.primary} />
-                        <Text style={[styles.actionBtnText, { color: colors.primary }]}>Flashcard</Text>
-                      </>
-                    )}
                  </TouchableOpacity>
                  <TouchableOpacity 
                    style={[styles.actionBtn, { backgroundColor: colors.surfaceStrong }]}
@@ -2719,7 +2722,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(67, 52, 34, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-  }
+  },
+  quickFlashBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  quickFlashBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
 });
 
 const SaveNameModal = ({ visible, onClose, onSave, value, setValue, isSaving }: any) => {
