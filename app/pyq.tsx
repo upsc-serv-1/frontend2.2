@@ -729,7 +729,10 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
       return;
     }
 
+    console.log(`[PDFExport] Starting export in mode: ${mode}, subject: ${subjectOverride || 'N/A'}`);
     setExporting(true);
+    // Add a small delay to allow the modal to close completely before heavy processing
+    await new Promise(resolve => setTimeout(resolve, 500));
     try {
       const esc = (value: string | number) =>
       String(value ?? '')
@@ -1049,11 +1052,17 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
       </html>
     `;
 
+    console.log(`[PDFExport] HTML generated. Length: ${html.length}`);
+
       const canShare = await Sharing.isAvailableAsync();
+      console.log(`[PDFExport] Sharing available: ${canShare}`);
       if (canShare && Platform.OS !== 'web') {
+        console.log(`[PDFExport] Printing to file...`);
         const { uri } = await Print.printToFileAsync({ html });
+        console.log(`[PDFExport] File printed to: ${uri}. Opening share menu...`);
         await Sharing.shareAsync(uri);
       } else {
+        console.log(`[PDFExport] Printing directly...`);
         await Print.printAsync({ html });
       }
     } catch (error: any) {
