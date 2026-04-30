@@ -750,6 +750,17 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 
+    const hslToHex = (h: number, s: number, l: number) => {
+      l /= 100;
+      const a = (s * Math.min(l, 1 - l)) / 100;
+      const f = (n: number) => {
+        const k = (n + h / 30) % 12;
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        return Math.round(255 * color).toString(16).padStart(2, '0');
+      };
+      return `#${f(0)}${f(8)}${f(4)}`;
+    };
+
     const hexToRgb = (hex: string) => {
       const clean = String(hex || '').replace('#', '');
       if (clean.length !== 6) return '37,99,235';
@@ -908,17 +919,17 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                     const h = 70 + (ratio * 155);
                     const s = 65 + (ratio * 20);
                     const l = 85 - (ratio * 55);
-                    bg = `hsl(${h}, ${s}%, ${l}%)`;
+                    bg = hslToHex(h, s, l);
                     tc = l < 55 ? '#ffffff' : '#065f46';
                   } else {
                     const h = 210 + (ratio * 15);
                     const s = 60 + (ratio * 35);
                     const l = 90 - (ratio * 65);
-                    bg = `hsl(${h}, ${s}%, ${l}%)`;
+                    bg = hslToHex(h, s, l);
                     tc = l < 55 ? '#ffffff' : '#1e3a8a';
                   }
                 }
-                return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
+                return `<td style="background-color: ${bg}; color: ${tc}; border: 1px solid #ffffff; border-radius: 4px; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
               }).join('')}
             </tr>
           `).join('')}

@@ -178,7 +178,7 @@ export default function NoteEditor() {
     u: { textDecorationLine: 'underline' as const, textDecorationColor: colors.textPrimary, textDecorationStyle: 'solid' as const },
     ins: { textDecorationLine: 'underline' as const },
     span: { color: colors.textPrimary },
-    mark: { color: colors.textPrimary, paddingHorizontal: 2 },
+    mark: { backgroundColor: '#FFF59D', color: colors.textPrimary, paddingHorizontal: 2 },
   };
 
   const onBlockLongPress = (item: any, index: number) => {
