@@ -1,0 +1,23 @@
+node_modules/
+.expo/
+dist/
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Sensitive files
+.env
+.env.local
+
+# Large files and backups
+*.zip
+*.tar.gz
+backup/
+*Backup*/
+cto changes/
+cto files/
+Arena_Feature_*/
+G1V15.2*/
+github_backup/
+v5_backup/
+node_modules/

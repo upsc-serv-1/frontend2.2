@@ -1,0 +1,110 @@
+{
+  "theme": "Dark",
+  "archetype": "Archetype 2 (The Performance Pro) adapted for mental athleticism and focus. Command-center aesthetic for serious JEE/NEET/UPSC aspirants.",
+  "colors": {
+    "background": "#0A0A0A",
+    "surface": "#121212",
+    "surface_elevated": "#1A1A1A",
+    "border": "#27272A",
+    "primary": "#FFC800",
+    "primary_foreground": "#000000",
+    "destructive": "#FF3B30",
+    "success": "#34C759",
+    "warning": "#FF9F0A",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_tertiary": "#52525B"
+  },
+  "typography": {
+    "font_family_heading": "Manrope",
+    "font_family_body": "Inter",
+    "sizes": {
+      "h1": "text-4xl tracking-tighter font-black text-white",
+      "h2": "text-3xl tracking-tight font-bold text-white",
+      "h3": "text-2xl tracking-tight font-bold text-white",
+      "h4": "text-xl tracking-tight font-semibold text-white",
+      "body": "text-base font-normal tracking-normal text-zinc-400",
+      "small_label": "text-xs font-bold uppercase tracking-[0.2em] text-zinc-500"
+    }
+  },
+  "spacing_and_layout": {
+    "container": "flex-1 bg-[#0A0A0A]",
+    "section_padding": "px-6 py-8",
+    "card_padding": "p-6",
+    "element_gap": "gap-4",
+    "bento_spacing": "gap-6",
+    "bottom_tab_bar": "bg-[#0A0A0A] border-t border-zinc-800/50 pt-3 pb-8 h-24"
+  },
+  "components": {
+    "card": {
+      "style": "bg-[#121212] border border-zinc-800/50 rounded-2xl",
+      "elevation": "shadow-none"
+    },
+    "question_card": {
+      "style": "bg-[#121212] border border-zinc-800 rounded-2xl p-6",
+      "option": "border border-zinc-800 rounded-xl p-4 mt-3 flex-row items-center bg-[#0A0A0A]",
+      "option_selected": "border-[#FFC800] bg-[#FFC800]/10",
+      "option_correct": "border-[#34C759] bg-[#34C759]/10",
+      "option_wrong": "border-[#FF3B30] bg-[#FF3B30]/10"
+    },
+    "flashcard": {
+      "style": "bg-[#121212] border border-zinc-800 rounded-3xl h-96 items-center justify-center p-8",
+      "flip_animation": "spring-based 3D rotation using Reanimated",
+      "action_row": "flex-row justify-between gap-3 mt-8",
+      "btn_easy": "flex-1 bg-[#34C759]/10 border border-[#34C759]/30 rounded-xl py-3 items-center",
+      "btn_hard": "flex-1 bg-[#FF3B30]/10 border border-[#FF3B30]/30 rounded-xl py-3 items-center",
+      "btn_good": "flex-1 bg-[#FFC800]/10 border border-[#FFC800]/30 rounded-xl py-3 items-center",
+      "btn_again": "flex-1 bg-zinc-800/50 border border-zinc-700 rounded-xl py-3 items-center"
+    },
+    "topic_chip": {
+      "style": "bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-full",
+      "text": "text-sm text-zinc-300 font-medium"
+    },
+    "progress_bar": {
+      "track": "h-2 bg-zinc-800 rounded-full overflow-hidden",
+      "fill": "h-full bg-[#FFC800] rounded-full"
+    },
+    "cta_button": {
+      "style": "bg-[#FFC800] py-4 rounded-xl items-center justify-center",
+      "text": "text-black font-bold text-lg"
+    }
+  },
+  "motion_and_interactions": {
+    "feedback": "Micro-interactions on quiz answers (gentle pulse for correct, sharp shake for incorrect)",
+    "press_state": "opacity-80 scale-95 transition-all duration-200",
+    "navigation": "smooth cross-fade or slide from right"
+  },
+  "icons": {
+    "library": "lucide-react-native",
+    "style": "stroke-width: 2",
+    "color_active": "#FFC800",
+    "color_inactive": "#71717A"
+  },
+  "media": {
+    "images": [
+      {
+        "id": "onboarding_focus",
+        "url": "https://images.pexels.com/photos/4384147/pexels-photo-4384147.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Student studying intensely in a dark room. Use for the first onboarding screen focusing on 'Discipline & Focus'.",
+        "category": "onboarding"
+      },
+      {
+        "id": "onboarding_analytics",
+        "url": "https://images.pexels.com/photos/6550117/pexels-photo-6550117.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Student analyzing notes. Use for the 'Track Your Progress' onboarding screen.",
+        "category": "onboarding"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "This is a fully native mobile app using React Native/Expo. DO NOT use web DOM elements (div, span). Use View, Text, TouchableOpacity, ScrollView.",
+    "Apply styling using NativeWind (Tailwind for React Native) or StyleSheet if preferred, following the defined colors and classes.",
+    "Implement the bottom tab navigation with 5 tabs (Home, Tests, Flashcards, Notes, Profile) using @react-navigation/bottom-tabs.",
+    "Enforce the 'Tactical Minimalism' design rule: replace soft shadows with 1px solid strokes (border-white/10). No muddy glassmorphism.",
+    "Add 'testID' attributes (equivalent to data-testid in web) to ALL touchables and key informational elements (e.g., testID='login-submit-button').",
+    "Use @gorhom/bottom-sheet for contextual menus or topic selection to avoid navigating away from the test/flashcard context.",
+    "The UI must feel like an elite command center, not a standard colorful EdTech app. Use the #FFC800 sparingly as a kinetic trigger.",
+    "Ensure the hero/onboarding images have a dark gradient overlay (e.g., bg-black/50) to make text readable.",
+    "Do not use WebView anywhere. All test taking, flashcards, and notes must be native components."
+  ]
+}
