@@ -147,12 +147,12 @@ function StickyHeatmapTable({
 
                         if (count > 0) {
                           textColor = '#ffffff';
-                          if (ratio >= 1.5) bgColor = '#312e81'; // Indigo 900
-                          else if (ratio >= 1.0) bgColor = '#4338ca'; // Indigo 700
-                          else if (ratio >= 0.7) bgColor = '#4f46e5'; // Indigo 600
-                          else if (ratio >= 0.4) bgColor = '#818cf8'; // Indigo 400
+                          if (ratio >= 1.4) bgColor = '#312e81'; // 20+ if divisor is 14
+                          else if (ratio >= 0.8) bgColor = '#4338ca'; // 12+ if divisor is 14
+                          else if (ratio >= 0.5) bgColor = '#4f46e5'; // 7+ if divisor is 14
+                          else if (ratio >= 0.2) bgColor = '#818cf8'; // 3+ if divisor is 14
                           else {
-                            bgColor = '#c7d2fe'; // Indigo 200
+                            bgColor = '#c7d2fe'; // 1-2 questions
                             textColor = '#3730a3';
                           }
                         } else {
@@ -882,10 +882,10 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                 
                 if (count > 0) {
                   tc = '#ffffff';
-                  if (ratio >= 1.5) bg = '#312e81';
-                  else if (ratio >= 1.0) bg = '#4338ca';
-                  else if (ratio >= 0.7) bg = '#4f46e5';
-                  else if (ratio >= 0.4) bg = '#818cf8';
+                  if (ratio >= 1.4) bg = '#312e81';
+                  else if (ratio >= 0.8) bg = '#4338ca';
+                  else if (ratio >= 0.5) bg = '#4f46e5';
+                  else if (ratio >= 0.2) bg = '#818cf8';
                   else { bg = '#c7d2fe'; tc = '#3730a3'; }
                 }
                 return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
