@@ -139,6 +139,12 @@ export default function MicrotopicModal() {
       const now = Date.now();
       const activeCards = merged.filter(c => c.status !== 'deleted');
       
+      console.log(`[FlashcardDeck] Stats check: Total=${merged.length}, Active=${activeCards.length}`);
+      const studied = activeCards.filter(c => c.learning_status !== 'not_studied');
+      if (studied.length > 0) {
+        console.log(`[FlashcardDeck] Studied cards detected:`, studied.map(c => ({ id: c.id, status: c.status, learning: c.learning_status, next: c.next_review })));
+      }
+
       setStats({
         due:      activeCards.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now).length,
         new:      activeCards.filter(c => c.learning_status === 'not_studied').length,
