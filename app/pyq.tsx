@@ -1061,11 +1061,20 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
         const { uri } = await Print.printToFileAsync({ html });
         console.log(`[PDFExport] File printed to: ${uri}. Opening share menu...`);
         setExporting(false); 
-        await Sharing.shareAsync(uri, { 
-          mimeType: 'application/pdf', 
-          dialogTitle: 'PYQ Analysis Report',
-          UTI: 'com.adobe.pdf' 
-        });
+        
+        // Small delay to ensure the overlay is fully gone from the UI hierarchy
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        try {
+          await Sharing.shareAsync(uri, { 
+            mimeType: 'application/pdf', 
+            dialogTitle: 'PYQ Analysis Report',
+            UTI: 'com.adobe.pdf' 
+          });
+        } catch (shareErr) {
+          console.error('[PDFExport] Sharing failed, falling back to Print dialog', shareErr);
+          await Print.printAsync({ html });
+        }
       } else {
         console.log(`[PDFExport] Printing directly...`);
         await Print.printAsync({ html });
