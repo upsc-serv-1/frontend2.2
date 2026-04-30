@@ -11,7 +11,8 @@ import {
   Platform,
   TextInput,
   Modal,
-  ScrollView
+  ScrollView,
+  Alert
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { 
@@ -21,7 +22,8 @@ import {
   BookOpen,
   SortAsc,
   SortDesc,
-  X
+  X,
+  Trash2
 } from 'lucide-react-native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
@@ -128,6 +130,36 @@ export default function MicrotopicModal() {
     return result;
   }, [cards, sortBy, filterBy]);
 
+  const handleDeleteCard = async (cardId: string) => {
+    if (!session?.user.id) return;
+    
+    const confirmDelete = () => {
+      Alert.alert(
+        "Delete Card",
+        "Are you sure you want to remove this card from your deck? Your progress will be lost.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Delete", 
+            style: "destructive", 
+            onPress: async () => {
+              try {
+                await FlashcardSvc.deleteCardForUser(session.user.id, cardId);
+                setCards(prev => prev.filter(c => c.id !== cardId));
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              } catch (err) {
+                console.error("Delete error:", err);
+                Alert.alert("Error", "Failed to delete card.");
+              }
+            }
+          }
+        ]
+      );
+    };
+
+    confirmDelete();
+  };
+
   const renderCardItem = ({ item }: { item: CardItem }) => {
     const showText = item.user_note?.trim()
       ? item.user_note
@@ -140,31 +172,40 @@ export default function MicrotopicModal() {
       : `in ${daysUntil}d`;
 
     return (
-      <TouchableOpacity
-        style={[styles.cardItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        onPress={() => router.push({
-          pathname: '/flashcards/review',
-          params: { microtopic, subject, section, cardId: item.id },
-        })}
-      >
-        <View style={styles.cardTop}>
-          <View style={[styles.statusDot, {
-            backgroundColor:
-              item.status === 'frozen' ? '#94a3b8' :
-              item.learning_status === 'mastered' ? '#34c759' :
-              item.learning_status === 'learning' ? '#3b82f6' :
-              item.learning_status === 'leech' ? '#ef4444' : '#cbd5e1',
-          }]} />
-          <Text style={[styles.cardPreview, { color: colors.textPrimary }]} numberOfLines={2}>
-            {showText || 'Untitled card'}
-          </Text>
-        </View>
-        <View style={styles.cardBottom}>
-          <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
-            {item.learning_status.replace('_', ' ').toUpperCase()} • {dueLabel}
-          </Text>
-        </View>
-      </TouchableOpacity>
+      <View style={[styles.cardItemContainer, { borderColor: colors.border }]}>
+        <TouchableOpacity
+          style={styles.cardItemMain}
+          onPress={() => router.push({
+            pathname: '/flashcards/review',
+            params: { microtopic, subject, section, cardId: item.id },
+          })}
+        >
+          <View style={styles.cardTop}>
+            <View style={[styles.statusDot, {
+              backgroundColor:
+                item.status === 'frozen' ? '#94a3b8' :
+                item.learning_status === 'mastered' ? '#34c759' :
+                item.learning_status === 'learning' ? '#3b82f6' :
+                item.learning_status === 'leech' ? '#ef4444' : '#cbd5e1',
+            }]} />
+            <Text style={[styles.cardPreview, { color: colors.textPrimary }]} numberOfLines={2}>
+              {showText || 'Untitled card'}
+            </Text>
+          </View>
+          <View style={styles.cardBottom}>
+            <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
+              {item.learning_status.replace('_', ' ').toUpperCase()} • {dueLabel}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.deleteCardBtn}
+          onPress={() => handleDeleteCard(item.id)}
+        >
+          <Trash2 size={18} color={colors.textTertiary} />
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -331,7 +372,23 @@ const styles = StyleSheet.create({
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: '#f1f5f9' },
   filterText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
   sortBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9' },
-  cardItem: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 10 },
+  cardItemContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    borderRadius: 16, 
+    borderWidth: 1, 
+    marginBottom: 10,
+    overflow: 'hidden'
+  },
+  cardItemMain: { 
+    flex: 1,
+    padding: 16,
+  },
+  deleteCardBtn: {
+    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   cardPreview: { flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 20 },
