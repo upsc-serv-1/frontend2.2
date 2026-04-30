@@ -23,6 +23,7 @@ import {
   Maximize2,
   Pause,
   Image as ImageIcon,
+  Trash2,
 } from 'lucide-react-native';
 import { GestureHandlerRootView, PinchGestureHandler, State } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
@@ -228,6 +229,49 @@ export default function ReviewScreen() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleDeleteCurrentCard = async () => {
+    const card = queue[currentIndex];
+    if (!card || !session?.user.id) return;
+
+    Alert.alert(
+      "Delete Card",
+      "Are you sure you want to permanently remove this card from your deck?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              setShowEditModal(false);
+              await FlashcardSvc.deleteCardForUser(session.user.id, card.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              
+              // Remove from local queue and move to next or exit
+              const nextQueue = queue.filter((_, i) => i !== currentIndex);
+              setQueue(nextQueue);
+              
+              if (nextQueue.length === 0) {
+                router.back();
+              } else if (currentIndex >= nextQueue.length) {
+                setCurrentIndex(0);
+                setIsFlipped(false);
+                flipAnim.setValue(0);
+              } else {
+                // Same index, new card
+                setIsFlipped(false);
+                flipAnim.setValue(0);
+              }
+            } catch (err) {
+              console.error(err);
+              Alert.alert("Error", "Failed to delete card.");
+            }
+          }
+        }
+      ]
+    );
   };
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
@@ -560,12 +604,16 @@ export default function ReviewScreen() {
               </TouchableOpacity>
 
               <View style={styles.modalActions}>
-                <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#ef444420' }]} onPress={freezeCard}>
-                  <Snowflake size={20} color="#ef4444" />
-                  <Text style={{ color: '#ef4444', fontWeight: '700' }}>Freeze Card</Text>
+                <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#ef444410' }]} onPress={handleDeleteCurrentCard}>
+                  <Trash2 size={20} color="#ef4444" />
+                  <Text style={{ color: '#ef4444', fontWeight: '700' }}>Delete</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#3b82f610' }]} onPress={freezeCard}>
+                  <Snowflake size={20} color="#3b82f6" />
+                  <Text style={{ color: '#3b82f6', fontWeight: '700' }}>Freeze</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.primary }]} onPress={savePersonalNote}>
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>Save Changes</Text>
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>Save</Text>
                 </TouchableOpacity>
               </View>
             </View>
