@@ -29,6 +29,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
+import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 
