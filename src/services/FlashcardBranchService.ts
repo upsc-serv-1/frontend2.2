@@ -19,13 +19,29 @@ export interface BranchNode {
 
 export class FlashcardBranchService {
   static async bootstrapIfEmpty(userId: string) {
-    // 1. Check if branches exist
-    const { count } = await supabase
+    console.log(`[FlashcardBranchSvc] Checking bootstrap for user: ${userId}`);
+    
+    // 1. Check if we have any mappings for our branches
+    const { data: branches } = await supabase
       .from('flashcard_branches')
-      .select('*', { count: 'exact', head: true })
+      .select('id, name, parent_id')
       .eq('user_id', userId);
 
-    if (count !== 0) return;
+    let mappingCount = 0;
+    if (branches && branches.length > 0) {
+      const { count } = await supabase
+        .from('flashcard_branch_cards')
+        .select('id', { count: 'exact', head: true })
+        .in('branch_id', branches.map(b => b.id));
+      mappingCount = count || 0;
+    }
+    
+    const existingBranches = branches || [];
+
+    if (mappingCount !== 0 && existingBranches.length > 0) {
+      console.log(`[FlashcardBranchSvc] Bootstrap skipped: already has ${mappingCount} mappings.`);
+      return;
+    }
 
     // 2. Fetch all cards for this user
     const { data: userCards, error: ucError } = await supabase
@@ -33,7 +49,12 @@ export class FlashcardBranchService {
       .select('card_id, cards!inner(subject, section_group, microtopic)')
       .eq('user_id', userId);
 
-    if (ucError || !userCards || userCards.length === 0) return;
+    if (ucError || !userCards || userCards.length === 0) {
+      console.log(`[FlashcardBranchSvc] No cards to bootstrap.`);
+      return;
+    }
+
+    console.log(`[FlashcardBranchSvc] Bootstrapping ${userCards.length} cards...`);
 
     // 3. Build hierarchy map from existing card fields
     const subjects: Record<string, any> = {};
@@ -51,47 +72,48 @@ export class FlashcardBranchService {
       subjects[sub][sec][micro].push(uc.card_id);
     });
 
+    // Helper to find or create branch
+    const findOrCreate = async (name: string, pId: string | null): Promise<string> => {
+      const existing = existingBranches?.find(b => b.name === name && b.parent_id === pId);
+      if (existing) return existing.id;
+
+      const { data, error } = await supabase
+        .from('flashcard_branches')
+        .insert({ user_id: userId, name, parent_id: pId })
+        .select('id')
+        .single();
+      if (error) throw error;
+      return data.id;
+    };
+
     // 4. Create branches and mappings
     for (const [subName, sections] of Object.entries(subjects)) {
-      // Create Subject branch
-      const { data: subBranch } = await supabase
-        .from('flashcard_branches')
-        .insert({ user_id: userId, name: subName, parent_id: null })
-        .select()
-        .single();
+      try {
+        const subId = await findOrCreate(subName, null);
 
-      if (!subBranch) continue;
+        for (const [secName, microtopics] of Object.entries(sections as any)) {
+          const secId = await findOrCreate(secName, subId);
 
-      for (const [secName, microtopics] of Object.entries(sections as any)) {
-        // Create Section branch
-        const { data: secBranch } = await supabase
-          .from('flashcard_branches')
-          .insert({ user_id: userId, name: secName, parent_id: subBranch.id })
-          .select()
-          .single();
+          for (const [microName, cardIds] of Object.entries(microtopics as any)) {
+            const mtId = await findOrCreate(microName, secId);
 
-        if (!secBranch) continue;
+            // Map cards using upsert to avoid duplicates
+            const mappings = (cardIds as string[]).map(cardId => ({
+              branch_id: mtId,
+              card_id: cardId
+            }));
 
-        for (const [microName, cardIds] of Object.entries(microtopics as any)) {
-          // Create Microtopic branch
-          const { data: microBranch } = await supabase
-            .from('flashcard_branches')
-            .insert({ user_id: userId, name: microName, parent_id: secBranch.id })
-            .select()
-            .single();
-
-          if (!microBranch) continue;
-
-          // Map cards
-          const mappings = (cardIds as string[]).map(cardId => ({
-            branch_id: microBranch.id,
-            card_id: cardId
-          }));
-
-          await supabase.from('flashcard_branch_cards').insert(mappings);
+            // Insert in chunks of 50 to avoid payload limits
+            for (let i = 0; i < mappings.length; i += 50) {
+              await supabase.from('flashcard_branch_cards').upsert(mappings.slice(i, i + 50));
+            }
+          }
         }
+      } catch (err) {
+        console.error(`[FlashcardBranchSvc] Bootstrap error for subject ${subName}:`, err);
       }
     }
+    console.log(`[FlashcardBranchSvc] Bootstrap complete.`);
   }
 
   static async getTree(userId: string, options: { includeArchived?: boolean } = {}): Promise<BranchNode[]> {
@@ -111,15 +133,18 @@ export class FlashcardBranchService {
 
     // Fetch card counts for branches
     const branchIds = (branches ?? []).map(b => b.id);
-    const { data: cardCounts } = await supabase
-      .from('flashcard_branch_cards')
-      .select('branch_id')
-      .in('branch_id', branchIds);
-
     const countsMap: Record<string, number> = {};
-    cardCounts?.forEach(c => {
-      countsMap[c.branch_id] = (countsMap[c.branch_id] || 0) + 1;
-    });
+
+    if (branchIds.length > 0) {
+      const { data: cardCounts } = await supabase
+        .from('flashcard_branch_cards')
+        .select('branch_id')
+        .in('branch_id', branchIds);
+
+      cardCounts?.forEach(c => {
+        countsMap[c.branch_id] = (countsMap[c.branch_id] || 0) + 1;
+      });
+    }
 
     // Build the tree
     const buildTree = (parentId: string | null = null, level = 0): BranchNode[] => {
