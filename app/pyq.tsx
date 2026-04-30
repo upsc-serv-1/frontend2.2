@@ -147,13 +147,14 @@ function StickyHeatmapTable({
 
                         if (count > 0) {
                           textColor = '#ffffff';
-                          if (count >= 18) bgColor = '#1e1b4b'; // Deep Navy
-                          else if (count >= 12) bgColor = '#7c3aed'; // Violet 600
-                          else if (count >= 7) bgColor = '#4f46e5'; // Indigo 600
-                          else if (count >= 3) bgColor = '#60a5fa'; // Blue 400
+                          if (count >= 18) bgColor = '#0c2c84'; // Deepest Blue
+                          else if (count >= 12) bgColor = '#225ea8'; // Dark Blue
+                          else if (count >= 8) bgColor = '#1d91c0'; // Medium Blue
+                          else if (count >= 5) bgColor = '#41b6c4'; // Light Blue
+                          else if (count >= 3) bgColor = '#7fcdbb'; // Aqua/Teal
                           else {
-                            bgColor = '#dbeafe'; // Blue 100
-                            textColor = '#1e40af';
+                            bgColor = '#edf8b1'; // Light Yellow-Green
+                            textColor = '#065f46'; // Dark green text for readability
                           }
                         } else {
                           opacity = 0.4;
@@ -882,11 +883,12 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                 
                 if (count > 0) {
                   tc = '#ffffff';
-                if (count >= 18) bg = '#1e1b4b';
-                else if (count >= 12) bg = '#7c3aed';
-                else if (count >= 7) bg = '#4f46e5';
-                else if (count >= 3) bg = '#60a5fa';
-                else { bg = '#dbeafe'; tc = '#1e40af'; }
+                if (count >= 18) bg = '#0c2c84';
+                else if (count >= 12) bg = '#225ea8';
+                else if (count >= 8) bg = '#1d91c0';
+                else if (count >= 5) bg = '#41b6c4';
+                else if (count >= 3) bg = '#7fcdbb';
+                else { bg = '#edf8b1'; tc = '#065f46'; }
                 }
                 return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
               }).join('')}
