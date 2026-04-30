@@ -104,14 +104,23 @@ const mergeData = (existing: any, q: any, inst: string) => {
   }
 
   if (q.explanation_markdown && q.explanation_markdown.trim()) {
-    const qExplStripped = q.explanation_markdown.toLowerCase().replace(/[^\w\s]/g, '');
-    const hasSimilar = existing._explanations.some((e: any) => {
-      const eStripped = e.text.toLowerCase().replace(/[^\w\s]/g, '');
-      return eStripped.includes(qExplStripped.substring(0, 100)) || qExplStripped.includes(eStripped.substring(0, 100));
-    });
-
-    if (!hasSimilar) {
+    const qExplTrimmed = q.explanation_markdown.trim();
+    
+    // Check for exact match first to consolidate sources
+    const existingExpl = existing._explanations.find((e: any) => e.text.trim() === qExplTrimmed);
+    
+    if (existingExpl) {
+      // Add institute to source list if not already there
+      const sources = existingExpl.source.split(', ');
+      if (!sources.includes(inst)) {
+        existingExpl.source = [...sources, inst].join(', ');
+      }
+    } else {
+      // Check for fuzzy similarity (only if it's extremely similar, > 95% match)
+      // For now, let's just keep them separate if they aren't EXACT matches, 
+      // as per user request to see "all explanations".
       existing._explanations.push({ source: inst, text: q.explanation_markdown });
+      
       // Keep the main markdown field as the first one for backward compatibility
       if (!existing.explanation_markdown) existing.explanation_markdown = q.explanation_markdown;
     }

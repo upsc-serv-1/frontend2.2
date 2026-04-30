@@ -993,12 +993,10 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
     if (includeAll || mode === 'distribution') {
       blocks.push(renderDonut('Subject Distribution (Donut)', distributionData));
       blocks.push(renderBarChart('Subject Distribution (Bar)', distributionData.slice(0, 20)));
-      blocks.push(renderTable('Subject Distribution Table', ['Subject', 'Questions'], subjectCountRows));
     }
 
     if (includeAll || mode === 'focused') {
       blocks.push(renderLineChart('Focused Trend', years, focusTrendSeries, ['#2563eb']));
-      blocks.push(renderTable('Focused Trend Table', ['Year', focusedLabel || 'Count'], years.map((year, idx) => [year, focusTrendSeries[0]?.values[idx] || 0])));
     }
 
     if (includeAll || mode === 'heatmaps') {
@@ -1016,7 +1014,6 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
       blocks.push(renderLineChart('All Subjects Momentum', years, overviewSeries, overviewSeries.map(item => trendColorMap[item.label] || '#2563eb')));
       blocks.push(renderDonut('All Subjects Distribution', distributionData));
       blocks.push(renderHeatmap('All Subjects x Year Heatmap', 'Subject', subjectHeatmapRows, '#2563eb', 14));
-      blocks.push(renderTable('All Subjects Distribution Table', ['Subject', 'Questions'], distributionData.map(item => [item.name, item.value])));
 
       // Subsequent Pages: Deep Dive for each Subject
       exportSubjects.forEach(subject => {

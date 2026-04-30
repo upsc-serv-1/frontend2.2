@@ -1681,11 +1681,33 @@ export default function UnifiedQuizEngine() {
                   </View>
                 )}
 
-                <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
-                  {(activeExplIndex[item.id] ?? -1) === -1 
-                    ? item.explanation_markdown 
-                    : item._explanations?.[activeExplIndex[item.id]]?.text || item.explanation_markdown || 'No explanation available.'}
-                </Markdown>
+                <View style={{ minHeight: 100 }}>
+                  {(activeExplIndex[item.id] ?? -1) === -1 ? (
+                    // 🆕 Combined View: Show all unique explanations with source headers
+                    item._explanations && item._explanations.length > 0 ? (
+                      item._explanations.map((expl: any, idx: number) => (
+                        <View key={idx} style={{ marginBottom: idx === item._explanations.length - 1 ? 0 : 20, borderBottomWidth: idx === item._explanations.length - 1 ? 0 : 1, borderBottomColor: colors.border + '20', paddingBottom: idx === item._explanations.length - 1 ? 0 : 16 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, opacity: 0.8 }}>
+                             <Book size={12} color={colors.primary} />
+                             <Text style={{ fontSize: 10, fontWeight: '900', color: colors.primary, letterSpacing: 1 }}>{expl.source.toUpperCase()}</Text>
+                          </View>
+                          <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
+                            {expl.text || 'No text available.'}
+                          </Markdown>
+                        </View>
+                      ))
+                    ) : (
+                      <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
+                        {item.explanation_markdown || 'No explanation available.'}
+                      </Markdown>
+                    )
+                  ) : (
+                    // Single Source View
+                    <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
+                      {item._explanations?.[activeExplIndex[item.id]]?.text || item.explanation_markdown || 'No explanation available.'}
+                    </Markdown>
+                  )}
+                </View>
               </View>
 
               <View style={styles.actionRow}>
