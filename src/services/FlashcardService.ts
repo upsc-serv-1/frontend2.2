@@ -140,7 +140,19 @@ export class FlashcardSvc {
       ? optionEntries.map(([k, v]) => `(${k.toUpperCase()}) ${v}`).join('\n')
       : '';
 
-    const front_text = [q.question_text || q.questionText || '', stmt, optionLines]
+    // Deduplicate question_text and stmt to avoid double-printing
+    const qText = (q.question_text || q.questionText || '').trim();
+    const sText = (stmt || '').trim();
+    
+    const parts = [qText];
+    if (sText && sText !== qText) {
+      parts.push(sText);
+    }
+    if (optionLines) {
+      parts.push(optionLines);
+    }
+
+    const front_text = parts
       .filter(Boolean)
       .join('\n\n')
       .trim();
