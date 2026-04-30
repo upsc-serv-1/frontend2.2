@@ -139,6 +139,7 @@ function StickyHeatmapTable({
                   {rows.map((row) => (
                     <View key={`data-${row.key}`} style={[styles.heatmapDataRow, { borderBottomColor: colors.border + '55' }]}> 
                       {years.map((year) => {
+                        const count = row.byYear[year] || 0;
                         const ratio = count / maxOpacityDivisor;
                         let bgColor = colors.surfaceStrong;
                         let textColor = colors.textTertiary;
@@ -873,6 +874,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
           ${rows.map(row => `
             <tr>
               <td>${esc(row.label)}</td>
+              ${years.map(year => {
                 const count = row.byYear[year] || 0;
                 const ratio = count / divisor;
                 let bg = '#f8fafc';
