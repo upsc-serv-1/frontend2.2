@@ -2,20 +2,9 @@ import React, { useRef, useEffect, useState } from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Eraser, Highlighter, Palette } from 'lucide-react-native';
+import { Highlighter } from 'lucide-react-native';
 
-const HIGHLIGHT_COLORS = [
-  '#FFF59D',
-  '#FFB74D',
-  '#81C784',
-  '#4FC3F7',
-  '#BA68C8',
-  '#FF6A88',
-  '#FFD54F',
-  '#80CBC4',
-  '#90CAF9',
-  '#EF9A9A',
-];
+const HIGHLIGHT_COLORS = ['#FFF59D', '#FFB74D', '#81C784', '#4FC3F7', '#BA68C8', '#FF6A88'];
 const DEFAULT_COLOR_KEY = 'notes_editor_highlight_color';
 
 type Props = {
@@ -33,33 +22,21 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
     AsyncStorage.getItem(DEFAULT_COLOR_KEY).then(v => { if (v) setHighlightColor(v); });
   }, []);
 
-  const applyHighlight = (selectedColor?: string) => {
-    const color = selectedColor ?? highlightColor;
-    if (color === 'transparent') {
-      editorRef.current?.commandDOM(`
-        (function() {
-          var sel = window.getSelection();
-          if (sel && sel.rangeCount > 0) {
-            var range = sel.getRangeAt(0);
-            var parentMark = range.commonAncestorContainer.parentElement;
-            if (parentMark && parentMark.tagName === 'MARK') {
-               var text = document.createTextNode(parentMark.textContent);
-               parentMark.parentNode.replaceChild(text, parentMark);
-            }
-          }
-        })();
-      `);
-      return;
-    }
+  // FIXED: Use <mark> tag instead of backColor for visible highlights
+  const applyHighlight = () => {
     editorRef.current?.commandDOM(`
       (function() {
         var sel = window.getSelection();
         if (sel && sel.rangeCount > 0) {
           var range = sel.getRangeAt(0);
-          var mark = document.createElement('mark');
-          mark.style.backgroundColor = '${color}';
-          mark.style.color = '#000';
-          range.surroundContents(mark);
+          if (range.toString().length > 0) {
+            var mark = document.createElement('mark');
+            mark.style.backgroundColor = '${highlightColor}';
+            mark.style.color = '#000';
+            mark.style.borderRadius = '2px';
+            mark.style.padding = '0 2px';
+            range.surroundContents(mark);
+          }
         }
       })()
     `);
@@ -69,7 +46,7 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
     setHighlightColor(c);
     await AsyncStorage.setItem(DEFAULT_COLOR_KEY, c);
     setShowPicker(false);
-    applyHighlight(c);
+    applyHighlight();
   };
 
   return (
@@ -87,7 +64,17 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
           editorStyle={{
             backgroundColor: themeColors.bg || '#ffffff',
             color: themeColors.textPrimary || '#000000',
-            contentCSSText: 'font-size:16px;line-height:1.5;padding:12px; mark { border-radius: 2px; padding: 0 2px; }',
+            contentCSSText: `
+              font-size:16px;
+              line-height:1.5;
+              padding:12px;
+              mark { 
+                background-color: #FFF59D; 
+                color: #000; 
+                border-radius: 2px; 
+                padding: 0 2px; 
+              }
+            `,
           }}
         />
       </ScrollView>
@@ -96,13 +83,7 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
         <View style={[s.picker, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
           {HIGHLIGHT_COLORS.map(c => (
             <TouchableOpacity key={c} onPress={() => pickColor(c)}
-              style={[s.swatch, { 
-                backgroundColor: c === 'transparent' ? themeColors.surface : c, 
-                borderColor: c === highlightColor ? themeColors.primary : themeColors.border 
-              }]}
-            >
-              {c === 'transparent' ? <Eraser size={12} color={themeColors.textPrimary} /> : null}
-            </TouchableOpacity>
+              style={[s.swatch, { backgroundColor: c, borderColor: c === highlightColor ? themeColors.primary : 'transparent' }]} />
           ))}
         </View>
       )}
@@ -119,30 +100,14 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
           actions.insertBulletsList,
           actions.insertOrderedList,
           actions.heading1,
-          'highlight_apply',
-          'highlight_picker',
-          'highlight_clear',
+          'highlight',
         ]}
         iconMap={{
           [actions.heading1]: ({ tintColor }: any) => <View style={{ padding: 4 }}><Highlighter size={0} color={tintColor} /></View>,
-          highlight_apply: ({ tintColor }: any) => (
-            <TouchableOpacity onPress={() => applyHighlight(highlightColor)}>
+          highlight: ({ tintColor }: any) => (
+            <TouchableOpacity onLongPress={() => setShowPicker(v => !v)} onPress={applyHighlight}>
               <View style={[s.hlIcon, { backgroundColor: highlightColor }]}>
                 <Highlighter size={16} color={tintColor} />
-              </View>
-            </TouchableOpacity>
-          ),
-          highlight_picker: ({ tintColor }: any) => (
-            <TouchableOpacity onPress={() => setShowPicker(v => !v)}>
-              <View style={s.toolIcon}>
-                <Palette size={16} color={tintColor} />
-              </View>
-            </TouchableOpacity>
-          ),
-          highlight_clear: ({ tintColor }: any) => (
-            <TouchableOpacity onPress={() => applyHighlight('transparent')}>
-              <View style={s.toolIcon}>
-                <Eraser size={16} color={tintColor} />
               </View>
             </TouchableOpacity>
           ),
@@ -153,8 +118,7 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
 }
 
 const s = StyleSheet.create({
-  picker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8, borderTopWidth: 1, justifyContent: 'center' },
-  swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  picker: { flexDirection: 'row', gap: 8, padding: 8, borderTopWidth: 1, justifyContent: 'center' },
+  swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
   hlIcon: { padding: 6, borderRadius: 6 },
-  toolIcon: { padding: 6, borderRadius: 6 },
 });

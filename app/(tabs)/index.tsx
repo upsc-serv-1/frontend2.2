@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, Pressable, FlatList, Vibration, useWindowDimensions } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders, Check, X, Settings } from 'lucide-react-native';
+import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders } from 'lucide-react-native';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
 import { radius, spacing } from '../../src/theme';
@@ -12,6 +12,7 @@ import { PageWrapper } from '../../src/components/PageWrapper';
 import { SyllabusService } from '../../src/services/SyllabusService';
 import { MICRO_SYLLABUS, OPTIONAL_SUBJECTS } from '../../src/data/syllabus';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Check, X, Settings } from 'lucide-react-native';
 import { Alert } from 'react-native';
 import { WidgetService, Widget } from '../../src/services/WidgetService';
 import { useWidgetData } from '../../src/hooks/useWidgetData';
@@ -33,30 +34,17 @@ export default function Home() {
   const { session } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
   const userId = session?.user.id;
-  console.log("[Route: (tabs)/index] Dashboard Mounting. User ID:", userId);
-  const name = (session?.user.user_metadata as any)?.display_name || session?.user.email?.split('@')[0] || 'Aspirant';
-
-  // Calculate grid width for 2 columns
-  const CARD_GAP = 12;
-  const CARD_WIDTH = (windowWidth - spacing.lg * 2 - CARD_GAP) / 2;
+  const name = (session?.user.user_metadata as any)?.display_name || session?.user?.email?.split('@')[0] || 'Aspirant';
   const [stats, setStats] = useState<Stats>({ 
-    attempts: 0, 
-    accuracy: 0, 
-    dueCards: 0, 
-    totalNotes: 0, 
-    streak: 5, 
-    syllabusPercent: 0,
-    subjectProgress: []
+    attempts: 0, accuracy: 0, dueCards: 0, totalNotes: 0, streak: 5, syllabusPercent: 0, subjectProgress: [] 
   });
   const [refreshing, setRefreshing] = useState(false);
 
-  // Widget Configuration
   const [configVisible, setConfigVisible] = useState(false);
   const [widgetCategory, setWidgetCategory] = useState<'Prelims' | 'Mains' | 'Optional'>('Prelims');
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [optionalChoice, setOptionalChoice] = useState('Anthropology');
 
-  // ── Widget System ──
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [showManage, setShowManage] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -83,7 +71,7 @@ export default function Home() {
   const saveConfig = async (category: any, subjects: string[]) => {
     const newConfig = { category, subjects };
     await AsyncStorage.setItem('dashboard_widget_config', JSON.stringify(newConfig));
-    load(); // Reload data with new config
+    load();
   };
 
   const load = useCallback(async () => {
@@ -95,9 +83,7 @@ export default function Home() {
       const [{ data: qs }, { count: notesCount }, { count: cardsCount }] = await Promise.all([
         supabase.from('question_states').select('is_incorrect_last_attempt').eq('user_id', userId),
         supabase.from('user_notes').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-        supabase.from('user_cards').select('id', { count: 'exact', head: true })
-          .eq('user_id', userId)
-          .lte('next_review_at', new Date().toISOString()),
+        supabase.from('user_cards').select('id', { count: 'exact', head: true }).eq('user_id', userId).lte('next_review_at', new Date().toISOString()),
       ]);
 
       const total = qs?.length || 0;
@@ -109,19 +95,14 @@ export default function Home() {
         const progress = await SyllabusService.getProgress(userId);
         let totalItems = 0;
         let completedItems = 0;
-        
         const subjectStats: Record<string, { total: number; completed: number; color: string }> = {};
-        
         const COLORS = ['#007AFF', '#FF9500', '#34C759', '#AF52DE', '#FF2D55', '#5856D6', '#FFCC00'];
         let colorIdx = 0;
 
         let dataPool = {};
         if (widgetCategory === 'Optional') {
           const sourceSyllabus = (optionalChoice === 'Anthropology') ? require('../../src/data/syllabus').ANTHROPOLOGY_SYLLABUS : { "Paper 1": { "Fundamentals": [] }, "Paper 2": { "Indian Context": [] } };
-          dataPool = {
-            [`${optionalChoice} Paper 1`]: sourceSyllabus["Paper 1"],
-            [`${optionalChoice} Paper 2`]: sourceSyllabus["Paper 2"],
-          };
+          dataPool = { [`${optionalChoice} Paper 1`]: sourceSyllabus["Paper 1"], [`${optionalChoice} Paper 2`]: sourceSyllabus["Paper 2"] };
         } else if (widgetCategory === 'Mains') {
           dataPool = require('../../src/data/syllabus').MAINS_SYLLABUS;
         } else {
@@ -130,11 +111,7 @@ export default function Home() {
 
         Object.entries(dataPool).forEach(([sub, groups]) => {
           if (selectedSubjects.length > 0 && !selectedSubjects.includes(sub)) return;
-          
-          if (!subjectStats[sub]) {
-            subjectStats[sub] = { total: 0, completed: 0, color: COLORS[colorIdx % COLORS.length] };
-            colorIdx++;
-          }
+          if (!subjectStats[sub]) { subjectStats[sub] = { total: 0, completed: 0, color: COLORS[colorIdx % COLORS.length] }; colorIdx++; }
 
           Object.entries(groups as any).forEach(([group, topics]) => {
             (topics as string[]).forEach(topic => {
@@ -142,7 +119,6 @@ export default function Home() {
               const path = `${sub}.${group}.${topic}`;
               const isMastered = progress[path]?.mastered;
               if (isMastered) completedItems++;
-              
               subjectStats[sub].total++;
               if (isMastered) subjectStats[sub].completed++;
             });
@@ -150,41 +126,24 @@ export default function Home() {
         });
         
         syllabusPercent = totalItems ? Math.round((completedItems / totalItems) * 100) : 0;
-        subjectProgress = Object.entries(subjectStats).map(([label, s]) => ({
-          label,
-          progress: s.total ? s.completed / s.total : 0,
-          color: s.color
-        })).sort((a, b) => b.progress - a.progress);
+        subjectProgress = Object.entries(subjectStats).map(([label, s]) => ({ label, progress: s.total ? s.completed / s.total : 0, color: s.color })).sort((a, b) => b.progress - a.progress);
+      } catch (e) { console.error("Syllabus Load Error:", e); }
 
-      } catch (e) {
-        console.error("Syllabus Load Error:", e);
-      }
-
-      const next: Stats = {
-        attempts: total,
-        accuracy: total ? Math.round((correct / total) * 100) : 0,
-        dueCards: cardsCount || 0,
-        totalNotes: notesCount || 0,
-        streak: 5, 
-        syllabusPercent,
-        subjectProgress
-      };
+      const next: Stats = { attempts: total, accuracy: total ? Math.round((correct / total) * 100) : 0, dueCards: cardsCount || 0, totalNotes: notesCount || 0, streak: 5, syllabusPercent, subjectProgress };
       setStats(next);
       await cacheSet(`home:${userId}`, next);
-    } catch (err) {
-      console.error("Home Load Error:", err);
-    }
+    } catch (err) { console.error("Home Load Error:", err); }
   }, [userId, widgetCategory, selectedSubjects, optionalChoice]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
-
   const onRefresh = async () => { setRefreshing(true); await load(); refreshWidgets(); setRefreshing(false); };
 
   const handleLongPressIn = () => {
     longPressTimer.current = setTimeout(() => {
       Vibration.vibrate(50);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setIsEditMode(true);
-    }, 4000);
+    }, 3000);
   };
   const handleLongPressOut = () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
 
@@ -193,10 +152,8 @@ export default function Home() {
     setWidgets(prev => prev.map(w => w.id === id ? { ...w, is_archived: true } : w));
   };
 
-  const handleReorder = async ({ data }: { data: Widget[] }) => {
-    setWidgets(prev => [...data, ...prev.filter(w => w.is_archived)]);
-    await WidgetService.reorder(userId!, data.map(d => d.id));
-  };
+  const CARD_GAP = 12;
+  const CARD_WIDTH = (windowWidth - spacing.lg * 2 - CARD_GAP) / 2;
 
   return (
     <PageWrapper>
@@ -231,14 +188,7 @@ export default function Home() {
                 placeholder="Search questions, notes, topics..." 
                 onSearch={(q, f) => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.push({
-                    pathname: "/unified/arena",
-                    params: { 
-                      tab: 'search',
-                      query: q,
-                      filters: JSON.stringify(f)
-                    }
-                  } as any);
+                  router.push({ pathname: "/unified/arena", params: { tab: 'search', query: q, filters: JSON.stringify(f) } } as any);
                 }}
               />
             </View>
@@ -260,10 +210,7 @@ export default function Home() {
                </View>
             </View>
 
-            <TouchableOpacity 
-              style={[styles.arenaCard, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
-              onPress={() => router.push('/arena')}
-            >
+            <TouchableOpacity style={[styles.arenaCard, { backgroundColor: colors.primary, shadowColor: colors.primary }]} onPress={() => router.push('/arena')}>
                <View style={styles.arenaContent}>
                   <View style={styles.arenaLeft}>
                     <Zap color="#FFF" size={32} fill="#FFF" />
@@ -272,22 +219,13 @@ export default function Home() {
                        <Text style={styles.arenaSub}>Advanced Quiz Engine • All Modes</Text>
                     </View>
                   </View>
-                  <View style={styles.arenaRight}>
-                     <ChevronRight color="#FFF" size={24} />
-                  </View>
+                  <View style={styles.arenaRight}><ChevronRight color="#FFF" size={24} /></View>
                </View>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.progressCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              activeOpacity={0.9}
-              onPress={() => router.push('/tracker')}
-              onLongPress={() => setConfigVisible(true)}
-            >
+            <TouchableOpacity style={[styles.progressCard, { backgroundColor: colors.surface, borderColor: colors.border }]} activeOpacity={0.9} onPress={() => router.push('/tracker')} onLongPress={() => setConfigVisible(true)}>
               <View style={styles.progressHeader}>
-                <View style={[styles.iconBox, { backgroundColor: colors.primary + '15' }]}>
-                  <Layout color={colors.primary} size={22} />
-                </View>
+                <View style={[styles.iconBox, { backgroundColor: colors.primary + '15' }]}><Layout color={colors.primary} size={22} /></View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Syllabus Tracker</Text>
@@ -301,14 +239,11 @@ export default function Home() {
                   <Text style={[styles.percentText, { color: colors.primary }]}>{stats.syllabusPercent}%</Text>
                 </View>
               </View>
-              
               <View style={{ maxHeight: 180 }}>
                 <ScrollView showsVerticalScrollIndicator={true} nestedScrollEnabled={true}>
                   <View style={styles.progressList}>
                      {stats.subjectProgress.length > 0 ? (
-                       stats.subjectProgress.map((sp) => (
-                         <SubjectProgress key={sp.label} label={sp.label} progress={sp.progress} color={sp.color} colors={colors} />
-                       ))
+                       stats.subjectProgress.map((sp) => (<SubjectProgress key={sp.label} label={sp.label} progress={sp.progress} color={sp.color} colors={colors} />))
                      ) : (
                        <View style={{ alignItems: 'center', justifyContent: 'center', height: 120 }}>
                           <Layout color={colors.textTertiary} size={32} opacity={0.3} />
@@ -321,40 +256,24 @@ export default function Home() {
             </TouchableOpacity>
 
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>RESUME ACTIONS</Text>
-            
             <View style={styles.resumeGrid}>
                <ResumeCard icon={<Layout color="#007AFF" size={20} />} label="Syllabus" sub="Track progress" onPress={() => router.push('/tracker')} colors={colors} width={CARD_WIDTH} />
                <ResumeCard icon={<RotateCcw color="#FF2D55" size={20} />} label="Flashcards" sub="Daily review" onPress={() => router.push('/flashcards')} colors={colors} width={CARD_WIDTH} />
                <ResumeCard icon={<History color="#8E8E93" size={20} />} label="Review" sub="Past attempts" onPress={() => router.push({ pathname: '/analyse', params: { mode: 'review' } })} colors={colors} width={CARD_WIDTH} />
                <ResumeCard icon={<BarChart3 color="#34C759" size={20} />} label="Analyse" sub="Performance" onPress={() => router.push({ pathname: '/analyse', params: { mode: 'overall' } })} colors={colors} width={CARD_WIDTH} />
             </View>
-
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>MY WIDGETS</Text>
           </>
         )}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            onLongPress={() => {
-              Vibration.vibrate(50);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setIsEditMode(true);
-            }}
-            delayLongPress={500}
-            style={{ marginBottom: 12 }}
-          >
-            <WidgetRenderer
-              widgetKey={item.widget_key}
-              data={widgetData}
-              onArchive={() => handleArchive(item.id)}
-            />
+          <TouchableOpacity onLongPress={() => setIsEditMode(true)} delayLongPress={500} style={{ marginBottom: 12 }}>
+            <WidgetRenderer widgetKey={item.widget_key} data={widgetData} onArchive={() => handleArchive(item.id)} />
           </TouchableOpacity>
         )}
         ListFooterComponent={() => (
           <>
             <TouchableOpacity onPress={() => setShowManage(true)} style={{ padding: 12, alignItems: 'center', marginBottom: 4 }}>
-              <Text style={{ color: colors.primary, fontWeight: '700' }}>
-                Manage Widgets ({archivedWidgets.length} archived)
-              </Text>
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>Manage Widgets ({archivedWidgets.length} archived)</Text>
             </TouchableOpacity>
 
             <View style={[styles.analyticsPromo, { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 24 }]}>
@@ -362,10 +281,7 @@ export default function Home() {
                   <Text style={[styles.promoTitle, { color: colors.textPrimary }]}>Detailed Analysis</Text>
                   <Text style={[styles.promoSub, { color: colors.textSecondary }]}>Check your weak areas and subject trends in the Analyse tab.</Text>
                </View>
-               <TouchableOpacity 
-                 style={[styles.promoBtn, { backgroundColor: colors.primary }]}
-                 onPress={() => router.push('/(tabs)/analyse')}
-               >
+               <TouchableOpacity style={[styles.promoBtn, { backgroundColor: colors.primary }]} onPress={() => router.push('/(tabs)/analyse')}>
                   <BarChart3 color="#FFF" size={20} />
                </TouchableOpacity>
             </View>
@@ -373,15 +289,18 @@ export default function Home() {
             <Modal visible={showManage} transparent animationType="slide" onRequestClose={() => setShowManage(false)}>
               <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
                 <View style={{ backgroundColor: colors.surface, padding: 24, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
-                  <Text style={{ fontSize: 20, fontWeight: '900', color: colors.textPrimary, marginBottom: 16 }}>Archived Widgets</Text>
-                  <ScrollView nestedScrollEnabled>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Text style={{ fontSize: 20, fontWeight: '900', color: colors.textPrimary }}>Manage Widgets</Text>
+                    <TouchableOpacity onPress={() => setShowManage(false)}><X color={colors.textPrimary} size={24} /></TouchableOpacity>
+                  </View>
+                  
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.textTertiary, marginBottom: 12 }}>ARCHIVED WIDGETS</Text>
+                  <ScrollView nestedScrollEnabled style={{ maxHeight: 200 }}>
                     {archivedWidgets.length === 0 ? (
                       <Text style={{ color: colors.textTertiary, textAlign: 'center', padding: 24 }}>No archived widgets.</Text>
                     ) : (
                       archivedWidgets.map(w => (
-                        <TouchableOpacity
-                          key={w.id}
-                          style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        <TouchableOpacity key={w.id} style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
                           onPress={async () => {
                             await WidgetService.restore(userId!, w.id);
                             setWidgets(prev => prev.map(x => x.id === w.id ? { ...x, is_archived: false } : x));
@@ -393,7 +312,30 @@ export default function Home() {
                       ))
                     )}
                   </ScrollView>
-                  <TouchableOpacity onPress={() => setShowManage(false)} style={{ padding: 16, alignItems: 'center' }}>
+
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.textTertiary, marginTop: 20, marginBottom: 12 }}>AVAILABLE WIDGETS TO ADD</Text>
+                  <ScrollView nestedScrollEnabled>
+                    {['daily_goal', 'exam_countdown', 'questions_today', 'study_time_today', 'weekly_streak', 'accuracy_trend', 'correct_incorrect', 'speed_meter', 'due_cards', 'mastery_ring', 'pyq_coverage', 'recent_notes', 'tagged_count', 'quick_practice', 'last_test', 'test_scores', 'study_heatmap'].map(key => {
+                      const isActive = activeWidgets.some(w => w.widget_key === key);
+                      return (
+                        <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <Text style={{ color: colors.textPrimary, textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</Text>
+                          {isActive ? (
+                            <Text style={{ color: colors.textTertiary }}>Active</Text>
+                          ) : (
+                            <TouchableOpacity onPress={async () => {
+                              await WidgetService.create(userId!, key);
+                              WidgetService.list(userId!).then(setWidgets);
+                            }}>
+                              <Text style={{ color: colors.primary, fontWeight: '800' }}>ADD</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <TouchableOpacity onPress={() => setShowManage(false)} style={{ padding: 16, alignItems: 'center', marginTop: 16 }}>
                     <Text style={{ color: colors.textTertiary, fontWeight: '700' }}>CLOSE</Text>
                   </TouchableOpacity>
                 </View>
@@ -402,17 +344,7 @@ export default function Home() {
           </>
         )}
       />
-      <WidgetConfigModal 
-        visible={configVisible} 
-        onClose={() => setConfigVisible(false)}
-        onSave={saveConfig}
-        category={widgetCategory}
-        setCategory={setWidgetCategory}
-        selectedSubjects={selectedSubjects}
-        setSelectedSubjects={setSelectedSubjects}
-        optionalChoice={optionalChoice}
-        colors={colors}
-      />
+      <WidgetConfigModal visible={configVisible} onClose={() => setConfigVisible(false)} onSave={saveConfig} category={widgetCategory} setCategory={setWidgetCategory} selectedSubjects={selectedSubjects} setSelectedSubjects={setSelectedSubjects} optionalChoice={optionalChoice} colors={colors} />
     </PageWrapper>
   );
 }
@@ -434,9 +366,7 @@ function SubjectProgress({ label, progress, color, colors }: any) {
 function WidgetConfigModal({ visible, onClose, onSave, category, setCategory, selectedSubjects, setSelectedSubjects, optionalChoice, colors }: any) {
   const categories = ['Prelims', 'Mains', 'Optional'];
   const subjects = useMemo(() => {
-    if (category === 'Optional') {
-      return [`${optionalChoice} Paper 1`, `${optionalChoice} Paper 2`];
-    }
+    if (category === 'Optional') return [`${optionalChoice} Paper 1`, `${optionalChoice} Paper 2`];
     if (category === 'Mains') return Object.keys(require('../../src/data/syllabus').MAINS_SYLLABUS);
     return Object.keys(MICRO_SYLLABUS);
   }, [category, optionalChoice]);
@@ -454,54 +384,27 @@ function WidgetConfigModal({ visible, onClose, onSave, category, setCategory, se
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Widget Settings</Text>
             <TouchableOpacity onPress={onClose}><X color={colors.textPrimary} size={24} /></TouchableOpacity>
           </View>
-
           <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>SYLLABUS CATEGORY</Text>
           <View style={styles.catRow}>
             {categories.map(c => (
-              <TouchableOpacity 
-                key={c} 
-                style={[styles.catBtn, { backgroundColor: category === c ? colors.primary : colors.surfaceStrong }]}
-                onPress={() => setCategory(c)}
-              >
-                <Text 
-                  style={[styles.catText, { color: category === c ? '#fff' : colors.textPrimary }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {c}
-                </Text>
+              <TouchableOpacity key={c} style={[styles.catBtn, { backgroundColor: category === c ? colors.primary : colors.surfaceStrong }]} onPress={() => setCategory(c)}>
+                <Text style={[styles.catText, { color: category === c ? '#fff' : colors.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{c}</Text>
               </TouchableOpacity>
             ))}
           </View>
-
           <Text style={[styles.modalLabel, { color: colors.textSecondary, marginTop: 24 }]}>VISIBLE SUBJECTS</Text>
           <ScrollView contentContainerStyle={styles.subGrid}>
-            <TouchableOpacity 
-              style={[styles.subItem, selectedSubjects.length === 0 && { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}
-              onPress={() => setSelectedSubjects([])}
-            >
+            <TouchableOpacity style={[styles.subItem, selectedSubjects.length === 0 && { backgroundColor: colors.primary + '20', borderColor: colors.primary }]} onPress={() => setSelectedSubjects([])}>
               <Text style={[styles.subText, { color: colors.textPrimary }, selectedSubjects.length === 0 && { color: colors.primary, fontWeight: '800' }]}>All Subjects</Text>
             </TouchableOpacity>
             {subjects.map((s: any) => (
-              <TouchableOpacity 
-                key={s} 
-                style={[styles.subItem, selectedSubjects.includes(s) && { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}
-                onPress={() => toggleSubject(s)}
-              >
+              <TouchableOpacity key={s} style={[styles.subItem, selectedSubjects.includes(s) && { backgroundColor: colors.primary + '20', borderColor: colors.primary }]} onPress={() => toggleSubject(s)}>
                 <Text style={[styles.subText, { color: colors.textPrimary }, selectedSubjects.includes(s) && { color: colors.primary, fontWeight: '800' }]}>{s}</Text>
                 {selectedSubjects.includes(s) && <Check size={14} color={colors.primary} />}
               </TouchableOpacity>
             ))}
           </ScrollView>
-
-          <TouchableOpacity 
-            style={[styles.applyBtn, { backgroundColor: colors.primary }]} 
-            onPress={() => {
-              onSave(category, selectedSubjects);
-              onClose();
-            }}
-          >
+          <TouchableOpacity style={[styles.applyBtn, { backgroundColor: colors.primary }]} onPress={() => { onSave(category, selectedSubjects); onClose(); }}>
             <Text style={styles.applyText}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -512,17 +415,13 @@ function WidgetConfigModal({ visible, onClose, onSave, category, setCategory, se
 
 function ResumeCard({ icon, label, sub, onPress, colors, width }: any) {
   return (
-    <TouchableOpacity 
-      style={[styles.resumeCard, { backgroundColor: colors.surface, borderColor: colors.border, width }]} 
-      onPress={onPress}
-    >
+    <TouchableOpacity style={[styles.resumeCard, { backgroundColor: colors.surface, borderColor: colors.border, width }]} onPress={onPress}>
       <View style={styles.resumeIcon}>{icon}</View>
       <Text style={[styles.resumeLabel, { color: colors.textPrimary }]}>{label}</Text>
       <Text style={[styles.resumeSub, { color: colors.textSecondary }]}>{sub}</Text>
     </TouchableOpacity>
   );
 }
-
 
 const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
@@ -542,48 +441,16 @@ const styles = StyleSheet.create({
   resumeIcon: { marginBottom: 12 },
   resumeLabel: { fontSize: 15, fontWeight: '800' },
   resumeSub: { fontSize: 12, marginTop: 2 },
-
   analyticsPromo: { flexDirection: 'row', alignItems: 'center', padding: 20, borderRadius: 24, borderWidth: 1, marginTop: 20 },
   promoTitle: { fontSize: 18, fontWeight: '800' },
   promoSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   promoBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginLeft: 16 },
-  arenaCard: {
-    marginTop: 20,
-    padding: 20,
-    borderRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  arenaContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  arenaLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  arenaTitle: {
-    color: '#FFF',
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  arenaSub: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  arenaRight: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  arenaCard: { marginTop: 20, padding: 20, borderRadius: 24, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
+  arenaContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  arenaLeft: { flexDirection: 'row', alignItems: 'center' },
+  arenaTitle: { color: '#FFF', fontSize: 20, fontWeight: '900' },
+  arenaSub: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600', marginTop: 2 },
+  arenaRight: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   progressCard: { padding: 20, borderRadius: 24, borderWidth: 1, marginTop: 20 },
   progressHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -611,13 +478,5 @@ const styles = StyleSheet.create({
   subText: { fontSize: 13, fontWeight: '600' },
   applyBtn: { height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   applyText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  // Widget system styles
   doneBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
-  addWidgetBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 20, borderWidth: 2, borderStyle: 'dashed', marginTop: 8, marginBottom: 12 },
-  addModalContent: { borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, maxHeight: '70%' },
-  addModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  addModalTitle: { fontSize: 22, fontWeight: '900' },
-  addWidgetRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, gap: 12 },
-  addWidgetName: { fontSize: 15, fontWeight: '700' },
-  addWidgetCategory: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
 });
