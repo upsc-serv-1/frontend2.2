@@ -30,6 +30,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
+import { supabase } from '../../src/lib/supabase';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
@@ -106,11 +107,13 @@ export default function MicrotopicModal() {
 
       // Recompute tally directly from merged (avoids view-lag on just-linked cards)
       const now = Date.now();
+      const activeCards = merged.filter(c => c.status !== 'deleted');
+      
       setStats({
-        due:      merged.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now).length,
-        new:      merged.filter(c => c.learning_status === 'not_studied').length,
-        learning: merged.filter(c => c.learning_status === 'learning' || c.learning_status === 'review').length,
-        mastered: merged.filter(c => c.learning_status === 'mastered').length,
+        due:      activeCards.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now).length,
+        new:      activeCards.filter(c => c.learning_status === 'not_studied').length,
+        learning: activeCards.filter(c => c.learning_status === 'learning' || c.learning_status === 'review').length,
+        mastered: activeCards.filter(c => c.learning_status === 'mastered').length,
       });
     } catch (err) {
       console.error(err);
@@ -174,7 +177,7 @@ export default function MicrotopicModal() {
             style: "destructive", 
             onPress: async () => {
               try {
-                await FlashcardSvc.deleteCardForUser(session.user.id, cardId);
+                await FlashcardSvc.deleteCard(session.user.id, cardId);
                 setCards(prev => prev.filter(c => c.id !== cardId));
                 
                 // Refresh stats to reflect deletion

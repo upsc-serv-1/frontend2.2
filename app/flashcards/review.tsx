@@ -248,7 +248,7 @@ export default function ReviewScreen() {
           onPress: async () => {
             try {
               setShowEditModal(false);
-              await FlashcardSvc.deleteCardForUser(session.user.id, card.id);
+              await FlashcardSvc.deleteCard(session.user.id, card.id);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
               
               // Remove from local queue and move to next or exit
