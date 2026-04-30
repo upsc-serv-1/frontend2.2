@@ -473,6 +473,27 @@ export default function ReviewScreen() {
                       
                       cleanText = cleanText.replace(/\n{3,}/g, '\n\n').trim();
 
+                      // Deduplicate: If the text contains a large chunk that repeats itself (common in PDF extractions)
+                      if (cleanText.length > 120) {
+                        const half = Math.floor(cleanText.length / 2);
+                        // Try to find a repeat point in the second half
+                        // We check the first 40 chars and see if they appear again later
+                        const anchor = cleanText.substring(0, 40);
+                        const secondOccurrence = cleanText.indexOf(anchor, 20);
+                        
+                        if (secondOccurrence > half) {
+                          // Likely a full repeat
+                          cleanText = cleanText.substring(0, secondOccurrence).trim();
+                        } else {
+                          // Check for "Consider the following..." style repeat in the middle
+                          const midAnchor = "Consider the following";
+                          const midIdx = cleanText.lastIndexOf(midAnchor);
+                          if (midIdx > half && cleanText.indexOf(midAnchor) < midIdx) {
+                            cleanText = cleanText.substring(0, midIdx).trim();
+                          }
+                        }
+                      }
+
                       return (
                         <>
                           <Text style={[styles.cardText, { color: colors.textPrimary, fontSize: editorFontSize, lineHeight: editorFontSize * 1.5, marginBottom: 12 }]}>
