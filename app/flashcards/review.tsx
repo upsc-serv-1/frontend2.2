@@ -391,7 +391,8 @@ export default function ReviewScreen() {
                       
                       // REPAIR: If options are missing from metadata, try to extract them from rawText
                       if (Object.keys(options).length === 0 && rawText) {
-                        const optionRegex = /\(([A-D])\)\s+([^\n(]+)/g;
+                        // Improved regex to match multi-line options until the next (Letter) or end of string
+                        const optionRegex = /\(([A-D])\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g;
                         let match;
                         while ((match = optionRegex.exec(rawText)) !== null) {
                           options[match[1].toLowerCase()] = match[2].trim();
@@ -402,7 +403,7 @@ export default function ReviewScreen() {
                       
                       // Strip extracted options from the displayed text to avoid double-printing
                       const cleanText = rawText
-                        .replace(/\([A-D]\)\s+[^\n(]+/g, '')
+                        .replace(/\([A-D]\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g, '')
                         .trim();
 
                       return (
@@ -482,10 +483,11 @@ export default function ReviewScreen() {
                             <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '500', lineHeight: (editorFontSize - 4) * 1.3 }}>
                               {v as string}
                             </Text>
-                          </TouchableOpacity>
-                        );
-                      });
-                    })()}
+                        )
+                      })}
+                    </>
+                  )
+                })()}
 
                     {currentCard.front_image_url && (
                       <Image source={{ uri: currentCard.front_image_url }} resizeMode="contain" style={{ width: '100%', height: 200, marginTop: 12, borderRadius: 8 }} />
