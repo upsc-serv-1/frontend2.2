@@ -491,38 +491,6 @@ export default function NotesProScreen() {
     [activeSubjectId, vaultData]
   );
 
-  const descendantIds = useMemo(() => {
-    const ids = new Set<string>();
-    const startId = moveTarget?.id;
-    if (!startId || !vaultData?.allFolders) return ids;
-    const collectChildren = (parentId: string) => {
-      Object.values(vaultData.allFolders || {}).forEach((folder: any) => {
-        if (folder?.parentId === parentId && folder?.id) {
-          ids.add(folder.id);
-          collectChildren(folder.id);
-        }
-      });
-    };
-    collectChildren(startId);
-    return ids;
-  }, [moveTarget, vaultData?.allFolders]);
-
-  const destinationFolders = useMemo(() => {
-    const allFolders = vaultData?.allFolders || {};
-    const rows: Array<{ id: string; name: string; depth: number; parentId: string | null }> = [];
-    const walk = (parentId: string | null, depth: number) => {
-      const children = Object.values(allFolders)
-        .filter((folder: any) => (folder?.parentId ?? null) === parentId)
-        .sort((a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || '')));
-      children.forEach((folder: any) => {
-        if (!folder?.id || folder.id === moveTarget?.id || descendantIds.has(folder.id)) return;
-        rows.push({ id: folder.id, name: folder.name || 'Untitled', depth, parentId: folder.parentId ?? null });
-        walk(folder.id, depth + 1);
-      });
-    };
-    walk(null, 0);
-    return rows;
-  }, [vaultData?.allFolders, moveTarget, descendantIds]);
 
 
   const DraggableNoteCard = ({ note }: { note: PilotNoteNode }) => {
