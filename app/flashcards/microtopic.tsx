@@ -72,22 +72,52 @@ export default function MicrotopicModal() {
       const userId = session!.user.id;
       const sec = (section as string) || 'General';
 
-      // Always fetch the base catalog; LEFT-JOIN progress so un-linked cards still show
+      console.log(`[FlashcardDeck] Loading for ${subject} > ${sec} > ${microtopic}`);
+
+      // 1. Build Base Query
+      let baseQuery = supabase
+        .from('cards')
+        .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes, section_group')
+        .ilike('subject', subject as string)
+        .ilike('microtopic', microtopic as string);
+
+      // Apply section filter matching review.tsx logic
+      if (sec && sec !== 'General') {
+        baseQuery = baseQuery.ilike('section_group', sec);
+      } else {
+        // For 'General' or empty section, include NULLs and explicit 'General'
+        baseQuery = baseQuery.or('section_group.is.null,section_group.ilike.General,section_group.eq.');
+      }
+
       const [baseRes, progRes] = await Promise.all([
-        supabase
-          .from('cards')
-          .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes')
-          .ilike('subject', subject as string)
-          .ilike('microtopic', microtopic as string)
-          .or(`section_group.ilike.${sec},section_group.is.null`),
+        baseQuery,
         supabase
           .from('user_cards')
           .select('*')
           .eq('user_id', userId),
       ]);
       const base = baseRes.data || [];
+      const prog = progRes.data || [];
+      
+      console.log(`[FlashcardDeck] Loaded ${base.length} base cards for sec=${sec}, topic=${microtopic}`);
+      if (base.length === 0) {
+        console.log('[FlashcardDeck] Query was:', { 
+          subject, 
+          microtopic, 
+          section: sec 
+        });
+        // Let's try a broader query to see if cards exist at all for this topic
+        const { data: allTopicCards } = await supabase
+          .from('cards')
+          .select('section_group')
+          .ilike('subject', subject as string)
+          .ilike('microtopic', microtopic as string)
+          .limit(5);
+        console.log('[FlashcardDeck] Broad topic check (top 5 section_groups):', allTopicCards?.map(c => c.section_group));
+      }
+
       const progByCardId: Record<string, any> = {};
-      (progRes.data || []).forEach((p: any) => (progByCardId[p.card_id] = p));
+      prog.forEach((p: any) => (progByCardId[p.card_id] = p));
 
       const merged: CardItem[] = base.map((bc: any) => {
         const p = progByCardId[bc.id] || {};
