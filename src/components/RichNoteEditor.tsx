@@ -38,24 +38,31 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
     if (color === 'transparent') {
       editorRef.current?.commandDOM(`
         (function() {
-          document.execCommand('hiliteColor', false, 'transparent');
-          document.execCommand('backColor', false, 'transparent');
-          const nodes = document.querySelectorAll('mark, span, font');
-          nodes.forEach((node) => {
-            const bg = (node.style && node.style.backgroundColor ? node.style.backgroundColor : '').toLowerCase();
-            if (node.tagName === 'MARK' || bg.includes('transparent') || bg === 'rgba(0, 0, 0, 0)') {
-              const p = node.parentNode;
-              while (node.firstChild) p.insertBefore(node.firstChild, node);
-              p.removeChild(node);
+          var sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            var range = sel.getRangeAt(0);
+            var parentMark = range.commonAncestorContainer.parentElement;
+            if (parentMark && parentMark.tagName === 'MARK') {
+               var text = document.createTextNode(parentMark.textContent);
+               parentMark.parentNode.replaceChild(text, parentMark);
             }
-          });
+          }
         })();
       `);
       return;
     }
-    editorRef.current?.commandDOM(
-      `document.execCommand('hiliteColor', false, '${color}'); document.execCommand('backColor', false, '${color}');`
-    );
+    editorRef.current?.commandDOM(`
+      (function() {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          var range = sel.getRangeAt(0);
+          var mark = document.createElement('mark');
+          mark.style.backgroundColor = '${color}';
+          mark.style.color = '#000';
+          range.surroundContents(mark);
+        }
+      })()
+    `);
   };
 
   const pickColor = async (c: string) => {
@@ -80,7 +87,7 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
           editorStyle={{
             backgroundColor: themeColors.bg || '#ffffff',
             color: themeColors.textPrimary || '#000000',
-            contentCSSText: 'font-size:16px;line-height:1.5;padding:12px;',
+            contentCSSText: 'font-size:16px;line-height:1.5;padding:12px; mark { border-radius: 2px; padding: 0 2px; }',
           }}
         />
       </ScrollView>

@@ -68,6 +68,7 @@ function StickyHeatmapTable({
   maxOpacityDivisor,
   colors,
   onCellPress,
+  heatmapPalette,
 }: {
   title: string;
   labelHeader: string;
@@ -77,6 +78,7 @@ function StickyHeatmapTable({
   maxOpacityDivisor: number;
   colors: any;
   onCellPress?: (rowLabel: string, year: string) => void;
+  heatmapPalette: 'spectral' | 'ocean';
 }) {
   const headerRef = useRef<ScrollView | null>(null);
 
@@ -220,6 +222,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
   const [activeHub, setActiveHub] = useState<HubKey>('overview');
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<'stage' | 'paper' | 'range' | null>(null);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
 
   const [rawQuestions, setRawQuestions] = useState<any[]>([]);
   const [testsMetaById, setTestsMetaById] = useState<Record<string, any>>({});
@@ -1225,6 +1228,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
         baseColor="#2563eb"
         maxOpacityDivisor={14}
         colors={colors}
+        heatmapPalette={heatmapPalette}
         onCellPress={(subject, year) => navigateToLearning({ subject, year })}
       />
     </View>
@@ -1239,6 +1243,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
       baseColor="#1d4ed8"
       maxOpacityDivisor={10}
       colors={colors}
+      heatmapPalette={heatmapPalette}
       onCellPress={(topic, year) => navigateToLearning({ micro: topic, year })}
     />
   );
@@ -1274,6 +1279,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
             baseColor="#2563eb"
             maxOpacityDivisor={8}
             colors={colors}
+            heatmapPalette={heatmapPalette}
             onCellPress={(section, year) => navigateToLearning({ subject: heatmapSubject, section, year })}
           />
 
@@ -1285,6 +1291,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
             baseColor="#1d4ed8"
             maxOpacityDivisor={8}
             colors={colors}
+            heatmapPalette={heatmapPalette}
             onCellPress={(micro, year) => navigateToLearning({ subject: heatmapSubject, micro, year })}
           />
         </>

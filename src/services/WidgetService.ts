@@ -55,6 +55,10 @@ class WidgetSvcImpl {
     );
     await Promise.all(updates);
   }
+
+  getAvailableWidgets() {
+    return ALL_WIDGET_KEYS;
+  }
 }
 
 export const WidgetService = new WidgetSvcImpl();

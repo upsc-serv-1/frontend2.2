@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, Pressable, FlatList, Vibration, useWindowDimensions } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders } from 'lucide-react-native';
+import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders, Check, X, Settings } from 'lucide-react-native';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
 import { radius, spacing } from '../../src/theme';
@@ -12,13 +12,11 @@ import { PageWrapper } from '../../src/components/PageWrapper';
 import { SyllabusService } from '../../src/services/SyllabusService';
 import { MICRO_SYLLABUS, OPTIONAL_SUBJECTS } from '../../src/data/syllabus';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Check, X, Settings } from 'lucide-react-native';
 import { Alert } from 'react-native';
 import { WidgetService, Widget } from '../../src/services/WidgetService';
 import { useWidgetData } from '../../src/hooks/useWidgetData';
 import { WidgetRenderer } from '../../src/components/widgets/WidgetRenderer';
 import { GlobalSearchBar } from '../../src/components/GlobalSearchBar';
-import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 
 type Stats = { 
   attempts: number; 
@@ -202,11 +200,9 @@ export default function Home() {
 
   return (
     <PageWrapper>
-      <DraggableFlatList
+      <FlatList
         data={activeWidgets}
         keyExtractor={(item) => item.id}
-        onDragEnd={handleReorder}
-        activationDistance={10}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         keyboardShouldPersistTaps="handled"
@@ -336,21 +332,22 @@ export default function Home() {
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>MY WIDGETS</Text>
           </>
         )}
-        renderItem={({ item, drag, isActive }) => (
-          <ScaleDecorator>
-            <TouchableOpacity
-              onLongPress={drag}
-              delayLongPress={250}
-              disabled={isActive}
-              style={{ marginBottom: 12 }}
-            >
-              <WidgetRenderer
-                widgetKey={item.widget_key}
-                data={widgetData}
-                onArchive={() => handleArchive(item.id)}
-              />
-            </TouchableOpacity>
-          </ScaleDecorator>
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            onLongPress={() => {
+              Vibration.vibrate(50);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setIsEditMode(true);
+            }}
+            delayLongPress={500}
+            style={{ marginBottom: 12 }}
+          >
+            <WidgetRenderer
+              widgetKey={item.widget_key}
+              data={widgetData}
+              onArchive={() => handleArchive(item.id)}
+            />
+          </TouchableOpacity>
         )}
         ListFooterComponent={() => (
           <>

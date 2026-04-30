@@ -400,8 +400,52 @@ export default function NotesProScreen() {
   };
 
   const moveItemToFolder = async (nodeId: string, folderId: string | null) => {
-    console.log(`[NotesDrag] Dropping node ${nodeId} into folder ${folderId}`);
+    console.log(`[NotesMove] Moving node ${nodeId} to folder ${folderId}`);
     await handleMoveAction(nodeId, folderId);
+  };
+
+  const promptRename = async (type: 'note' | 'folder' | 'section' | 'subject' | 'node', id: string, currentName: string) => {
+    Alert.prompt(
+      'Rename',
+      `Enter new name for "${currentName}"`,
+      async (newName) => {
+        if (!newName?.trim() || newName === currentName) return;
+        try {
+          if (type === 'note') {
+            await supabase.from('user_notes').update({ title: newName.trim() }).eq('id', id);
+          } else {
+            await supabase.from('user_note_nodes').update({ title: newName.trim() }).eq('id', id);
+          }
+          refresh();
+        } catch (e) { Alert.alert("Error", "Could not rename."); }
+      },
+      'plain',
+      currentName
+    );
+  };
+
+  const confirmDelete = (type: 'note' | 'node', id: string) => {
+    Alert.alert(
+      'Delete Confirmation',
+      'Are you sure? This will move the item to archive (soft delete).',
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              if (type === 'note') {
+                await supabase.from('user_notes').update({ is_archived: true }).eq('id', id);
+              } else {
+                await supabase.from('user_note_nodes').update({ is_archived: true }).eq('id', id);
+              }
+              refresh();
+            } catch (e) { Alert.alert("Error", "Could not delete."); }
+          }
+        }
+      ]
+    );
   };
 
   const stats = useMemo(() => [
@@ -458,7 +502,20 @@ export default function NotesProScreen() {
           pathname: '/notes/editor', 
           params: { id: note.note_id, title: note.title, subject: note.subject } 
         })}
-        onLongPress={() => openMovePicker(note)}
+        onLongPress={() => {
+          Vibration.vibrate(50);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          Alert.alert(
+            `"${note.title}"`,
+            'What would you like to do?',
+            [
+              { text: "Move", onPress: () => openMovePicker(note) },
+              { text: "Rename", onPress: () => promptRename('note', note.id, note.title) },
+              { text: "Delete", style: "destructive", onPress: () => confirmDelete('note', note.note_id) },
+              { text: "Cancel", style: "cancel" }
+            ]
+          );
+        }}
       >
         <View style={[
           styles.noteCard, 
@@ -484,7 +541,20 @@ export default function NotesProScreen() {
       <View style={[styles.treeRow, { paddingLeft: 40 }]}>
         <TouchableOpacity 
           onPress={() => router.push({ pathname: '/notes', params: { sid: topic.id } })}
-          onLongPress={() => openFolderActions(topic)}
+          onLongPress={() => {
+            Vibration.vibrate(50);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            Alert.alert(
+              `"${topic.name}"`,
+              'What would you like to do?',
+              [
+                { text: "Move", onPress: () => openMovePicker(topic) },
+                { text: "Rename", onPress: () => promptRename('node', topic.id, topic.name) },
+                { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', topic.id) },
+                { text: "Cancel", style: "cancel" }
+              ]
+            );
+          }}
           activeOpacity={0.7}
           style={{ flex: 1 }}
         >
@@ -506,7 +576,20 @@ export default function NotesProScreen() {
       <View style={[styles.treeRow, { paddingLeft: 20 }]}>
         <TouchableOpacity 
           onPress={() => router.push({ pathname: '/notes', params: { sid: section.id } })}
-          onLongPress={() => openFolderActions(section)}
+          onLongPress={() => {
+            Vibration.vibrate(50);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            Alert.alert(
+              `"${section.name}"`,
+              'What would you like to do?',
+              [
+                { text: "Move", onPress: () => openMovePicker(section) },
+                { text: "Rename", onPress: () => promptRename('node', section.id, section.name) },
+                { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', section.id) },
+                { text: "Cancel", style: "cancel" }
+              ]
+            );
+          }}
           activeOpacity={0.7}
           style={{ flex: 1 }}
         >
@@ -527,7 +610,19 @@ export default function NotesProScreen() {
     return (
       <TouchableOpacity
         onPress={() => router.push({ pathname: '/notes', params: { sid: subject.id } })}
-        onLongPress={() => openFolderActions(subject)}
+        onLongPress={() => {
+          Vibration.vibrate(50);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          Alert.alert(
+            `"${subject.name}"`,
+            'What would you like to do?',
+            [
+              { text: "Rename", onPress: () => promptRename('node', subject.id, subject.name) },
+              { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', subject.id) },
+              { text: "Cancel", style: "cancel" }
+            ]
+          );
+        }}
         activeOpacity={0.8}
         style={{ width: COLUMN_WIDTH }}
       >
