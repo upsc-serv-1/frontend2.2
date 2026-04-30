@@ -131,11 +131,14 @@ export class FlashcardSvc {
 
   // ============ CREATE FROM QUIZ QUESTION (req #1, #2, #3) ============
   static async createFromQuestion(userId: string, q: any) {
-    const opts = q.options ?? {};
+    const opts = q.options ?? q.question_options ?? {};
     const stmtLines = Array.isArray(q.statement_lines) ? q.statement_lines.join('\n') : '';
-    const optionLines = Object.entries(opts)
-      .map(([k, v]) => `(${k.toUpperCase()}) ${v}`)
-      .join('\n');
+    
+    // Ensure we actually have options text to show
+    const optionEntries = Object.entries(opts);
+    const optionLines = optionEntries.length > 0
+      ? optionEntries.map(([k, v]) => `(${k.toUpperCase()}) ${v}`).join('\n')
+      : '';
 
     const front_text = [q.question_text || q.questionText || '', stmtLines, optionLines]
       .filter(Boolean)
@@ -147,8 +150,7 @@ export class FlashcardSvc {
       ? `**Correct: (${correctKey.toUpperCase()})** ${opts[correctKey]}`
       : '';
     const explanation = q.explanation_markdown || q.explanation || '';
-    const back_text = [correctText, explanation].filter(Boolean).join('\n\n');
-
+    
     const instituteSrc: InstituteSource = {
       institute: q.institute || q.tests?.institute || q.provider || 'Unknown',
       year: q.exam_year || q.year,
@@ -156,11 +158,15 @@ export class FlashcardSvc {
       correct: correctKey,
     };
 
-    let card: { id: string; institutes?: any[]; merged_from?: any[] } | null = null;
+    // Construct the "Source" line for the back
+    const sourceLine = `📍 ${instituteSrc.institute}${instituteSrc.year ? ` ${instituteSrc.year}` : ''}${instituteSrc.correct ? ` (Ans: ${instituteSrc.correct.toUpperCase()})` : ''}`;
+    const back_text = [sourceLine, correctText, explanation].filter(Boolean).join('\n\n');
+
+    let card: { id: string; institutes?: any[]; merged_from?: any[]; back_text?: string } | null = null;
     if (q.id) {
       const { data } = await supabase
         .from('cards')
-        .select('id, institutes, merged_from')
+        .select('id, institutes, merged_from, back_text')
         .eq('question_id', q.id)
         .maybeSingle();
       if (data) card = data as any;
@@ -171,10 +177,18 @@ export class FlashcardSvc {
       const alreadyPresent = existing.some((i: InstituteSource) =>
         i.institute === instituteSrc.institute && i.year === instituteSrc.year
       );
+      
       if (!alreadyPresent) {
+        const newInstitutes = [...existing, instituteSrc];
+        // Merge the source labels into the back text so they appear in the UI
+        const allSources = newInstitutes.map(i => `• ${i.institute}${i.year ? ` ${i.year}` : ''}${i.correct ? ` (${i.correct.toUpperCase()})` : ''}`).join('  ');
+        const updatedBack = `**Merged Sources:**\n${allSources}\n\n${card.back_text || back_text}`;
+
         await supabase.from('cards').update({
-          institutes: [...existing, instituteSrc],
+          institutes: newInstitutes,
           merged_from: [...(card.merged_from || []), q.id],
+          back_text: updatedBack,
+          answer_text: updatedBack // for compatibility
         }).eq('id', card.id);
       }
       await this.linkUserCard(userId, card.id);
