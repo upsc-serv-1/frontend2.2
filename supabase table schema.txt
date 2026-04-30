@@ -1,0 +1,274 @@
+CREATE TABLE admin_user_performance (
+  attempt_id text,
+  user_id uuid,
+  test_id text,
+  test_title text,
+  score numeric,
+  question_count integer,
+  accuracy_pct numeric,
+  started_at timestamp with time zone,
+  submitted_at timestamp with time zone,
+  duration_seconds integer
+);
+
+CREATE TABLE admin_users (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  role text DEFAULT 'editor'::text,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE card_folder_map (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  card_id uuid NOT NULL,
+  folder_id uuid NOT NULL
+);
+
+CREATE TABLE card_reviews (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  card_id uuid NOT NULL,
+  reviewed_at timestamp with time zone DEFAULT now(),
+  quality smallint NOT NULL,
+  prev_interval integer,
+  new_interval integer,
+  prev_ef numeric,
+  new_ef numeric
+);
+
+CREATE TABLE cards (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  question_id text NOT NULL,
+  test_id text NOT NULL,
+  question_text text NOT NULL DEFAULT ''::text,
+  answer_text text NOT NULL DEFAULT ''::text,
+  correct_answer text,
+  subject text,
+  section_group text,
+  microtopic text,
+  provider text,
+  source jsonb DEFAULT '{}'::jsonb,
+  explanation_markdown text DEFAULT ''::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  front_text text,
+  back_text text,
+  front_image_url text,
+  back_image_url text,
+  card_type text DEFAULT 'qa'::text
+);
+
+CREATE TABLE draft_attempts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  test_id text,
+  payload jsonb DEFAULT '{}'::jsonb,
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE folders (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  microtopic text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE posts (
+  id uuid,
+  user_id uuid,
+  content text
+);
+
+CREATE TABLE question_states (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  question_id text NOT NULL,
+  test_id text,
+  selected_answer text,
+  confidence text,
+  note text,
+  highlight_text text,
+  saved_folders jsonb DEFAULT '[]'::jsonb,
+  review_tags jsonb DEFAULT '[]'::jsonb,
+  question_type_tags jsonb DEFAULT '[]'::jsonb,
+  review_difficulty text,
+  is_incorrect_last_attempt boolean DEFAULT false,
+  marked_tough boolean DEFAULT false,
+  marked_must_revise boolean DEFAULT false,
+  attempts_history jsonb DEFAULT '[]'::jsonb,
+  spaced_revision jsonb DEFAULT '{}'::jsonb,
+  updated_at timestamp with time zone DEFAULT now(),
+  attempt_hour integer,
+  difficulty_level text,
+  error_category text,
+  user_tags ARRAY,
+  time_spent_seconds integer DEFAULT 0,
+  attempt_id text
+);
+
+CREATE TABLE questions (
+  id text NOT NULL,
+  test_id text NOT NULL,
+  question_number integer,
+  question_text text NOT NULL DEFAULT ''::text,
+  statement_lines jsonb DEFAULT '[]'::jsonb,
+  question_blocks jsonb DEFAULT '[]'::jsonb,
+  options jsonb DEFAULT '{}'::jsonb,
+  correct_answer text,
+  explanation_markdown text DEFAULT ''::text,
+  source_attribution_label text,
+  source jsonb DEFAULT '{}'::jsonb,
+  subject text,
+  section_group text,
+  micro_topic text,
+  is_pyq boolean DEFAULT false,
+  is_ncert boolean DEFAULT false,
+  is_upsc_cse boolean DEFAULT false,
+  is_allied boolean DEFAULT false,
+  is_others boolean DEFAULT false,
+  is_cancelled boolean DEFAULT false,
+  exam text,
+  exam_group text,
+  exam_year integer,
+  exam_category text,
+  specific_exam text,
+  exam_stage text,
+  exam_paper text,
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE study_sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  date date NOT NULL DEFAULT CURRENT_DATE,
+  cards_reviewed integer NOT NULL DEFAULT 0,
+  cards_correct integer NOT NULL DEFAULT 0,
+  duration_seconds integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE test_attempts (
+  id text NOT NULL,
+  user_id uuid NOT NULL,
+  test_id text,
+  title text,
+  provider text,
+  subject text,
+  explanation_mode text,
+  timer_mode text,
+  timer_minutes integer,
+  started_at timestamp with time zone,
+  submitted_at timestamp with time zone DEFAULT now(),
+  score numeric,
+  attempt_payload jsonb DEFAULT '{}'::jsonb,
+  custom_test_name text
+);
+
+CREATE TABLE tests (
+  id text NOT NULL,
+  title text NOT NULL,
+  provider text,
+  institute text,
+  program_id text,
+  program_name text,
+  launch_year integer,
+  series text,
+  level text,
+  year integer,
+  subject text,
+  subject_test text,
+  section_group text,
+  paper_type text,
+  question_count integer DEFAULT 0,
+  default_minutes integer,
+  source_mode text,
+  is_demo_available boolean DEFAULT false,
+  exam_year integer,
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE user_cards (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  card_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'active'::text,
+  repetitions integer NOT NULL DEFAULT 0,
+  interval_days integer NOT NULL DEFAULT 0,
+  ease_factor double precision NOT NULL DEFAULT 2.5,
+  next_review timestamp with time zone NOT NULL DEFAULT now(),
+  last_reviewed timestamp with time zone,
+  learning_status text NOT NULL DEFAULT 'not_studied'::text,
+  again_count integer NOT NULL DEFAULT 0,
+  user_note text DEFAULT ''::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  last_quality smallint,
+  lapses integer DEFAULT 0
+);
+
+CREATE TABLE user_note_nodes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  parent_id uuid,
+  type text NOT NULL,
+  title text NOT NULL,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  note_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  is_pinned boolean DEFAULT false,
+  color text,
+  icon text
+);
+
+CREATE TABLE user_notes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  subject text NOT NULL,
+  title text NOT NULL,
+  checklist_notes text DEFAULT ''::text,
+  items jsonb DEFAULT '[]'::jsonb,
+  highlights jsonb DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  content text,
+  content_html text
+);
+
+CREATE TABLE user_settings (
+  user_id uuid NOT NULL,
+  full_name text,
+  display_name text,
+  deck_intervals jsonb DEFAULT '{"easy": 7, "good": 3, "hard": 1, "again": 0}'::jsonb,
+  permissions jsonb DEFAULT '{"isAdmin": false, "accessPdf": true, "accessTags": true, "accessNotes": true, "accessFlashcards": true}'::jsonb,
+  custom_tags jsonb DEFAULT '[]'::jsonb,
+  folders jsonb DEFAULT '[]'::jsonb,
+  updated_at timestamp with time zone DEFAULT now(),
+  analytics_layout jsonb NOT NULL DEFAULT '{"review": ["summary", "outcomes", "subject_accuracy", "fatigue", "difficulty", "mistake_types", "confidence", "weak_areas", "insights"], "overall": ["smart_insight", "repeated_weaknesses", "performance_trajectory", "subject_proficiency", "elimination_zone", "theme_heatmap", "fatigue_difficulty", "mistake_categorization"]}'::jsonb
+);
+
+CREATE TABLE user_syllabus_progress (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  path text NOT NULL,
+  status jsonb NOT NULL,
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE user_widgets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  widget_key text NOT NULL,
+  position integer NOT NULL DEFAULT 0,
+  is_archived boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE users (
+  id uuid NOT NULL,
+  email text,
+  created_at timestamp without time zone
+);
