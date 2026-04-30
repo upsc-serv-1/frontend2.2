@@ -77,19 +77,11 @@ export default function MicrotopicModal() {
       console.log(`[FlashcardDeck] Loading for ${sSubject} > ${sSection} > ${sTopic}`);
 
       // 1. Build Base Query
-      let baseQuery = supabase
+      const baseQuery = supabase
         .from('cards')
         .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes, section_group')
         .ilike('subject', sSubject)
         .ilike('microtopic', sTopic);
-
-      // Apply section filter matching review.tsx logic
-      if (sSection && sSection !== 'General') {
-        baseQuery = baseQuery.ilike('section_group', sSection);
-      } else {
-        // For 'General' or empty section, include NULLs and explicit 'General'
-        baseQuery = baseQuery.or('section_group.is.null,section_group.ilike.General,section_group.eq.');
-      }
 
       const [baseRes, progRes] = await Promise.all([
         baseQuery,
@@ -101,19 +93,19 @@ export default function MicrotopicModal() {
       const base = baseRes.data || [];
       const prog = progRes.data || [];
       
-      console.log(`[FlashcardDeck] Loaded ${base.length} base cards for sec=${sec}, topic=${microtopic}`);
+      console.log(`[FlashcardDeck] Loaded ${base.length} base cards for sec=${sSection}, topic=${sTopic}`);
       if (base.length === 0) {
         console.log('[FlashcardDeck] Query was:', { 
-          subject, 
-          microtopic, 
-          section: sec 
+          subject: sSubject, 
+          microtopic: sTopic, 
+          section: sSection 
         });
         // Let's try a broader query to see if cards exist at all for this topic
         const { data: allTopicCards } = await supabase
           .from('cards')
           .select('section_group')
-          .ilike('subject', subject as string)
-          .ilike('microtopic', microtopic as string)
+          .ilike('subject', sSubject)
+          .ilike('microtopic', sTopic)
           .limit(5);
         console.log('[FlashcardDeck] Broad topic check (top 5 section_groups):', allTopicCards?.map(c => c.section_group));
       }
