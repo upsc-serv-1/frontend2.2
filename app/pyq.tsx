@@ -1004,7 +1004,6 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
 
     if (includeAll || mode === 'heatmaps') {
       blocks.push(renderHeatmap('Subject x Year Heatmap', 'Subject', subjectHeatmapRows, '#2563eb', 14));
-      blocks.push(renderTable('Top Topics by Year (Table)', ['Topic', years.join(' / ')], topicRows));
       blocks.push(renderHeatmap('Top 20 Topics x Year Heatmap', 'Topic', topicHeatmapRows, '#1d4ed8', 10));
     }
 
@@ -1035,9 +1034,10 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
           h1 { margin: 0 0 8px; font-size: 24px; }
           h2 { margin: 20px 0 10px; font-size: 17px; color: #1e293b; }
           .meta { margin: 0 0 12px; color: #475569; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-          td, th { border: 1px solid #d1d5db; padding: 6px; font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 16px; table-layout: auto; }
+          td, th { border: 1px solid #d1d5db; padding: 6px; font-size: 11px; vertical-align: middle; }
           th { background: #f8fafc; text-align: left; }
+          td:first-child, th:first-child { width: 200px; min-width: 200px; }
           .chart-card { border: 1px solid #d1d5db; border-radius: 12px; padding: 10px; margin-bottom: 16px; background: #fff; }
           .bar-card { border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; margin-bottom: 16px; }
           .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
