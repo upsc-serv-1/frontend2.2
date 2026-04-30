@@ -406,11 +406,13 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
                       const cellAcc = Math.max(0, Math.min(100, item.accuracy + mockVar));
                       let bg = '#f8fafc';
                       let tc = '#64748b';
-                      if (cellAcc >= 85) { bg = '#14532d'; tc = '#fff'; }
-                      else if (cellAcc >= 70) { bg = '#166534'; tc = '#fff'; }
-                      else if (cellAcc >= 50) { bg = '#4f46e5'; tc = '#fff'; }
-                      else if (cellAcc >= 30) { bg = '#f59e0b'; tc = '#fff'; }
-                      else if (cellAcc > 0) { bg = '#ef4444'; tc = '#fff'; }
+                      if (cellAcc >= 90) { bg = '#14532d'; tc = '#fff'; }
+                      else if (cellAcc >= 75) { bg = '#15803d'; tc = '#fff'; }
+                      else if (cellAcc >= 60) { bg = '#4f46e5'; tc = '#fff'; }
+                      else if (cellAcc >= 45) { bg = '#f59e0b'; tc = '#fff'; }
+                      else if (cellAcc >= 30) { bg = '#f97316'; tc = '#fff'; }
+                      else if (cellAcc >= 15) { bg = '#ef4444'; tc = '#fff'; }
+                      else if (cellAcc > 0) { bg = '#991b1b'; tc = '#fff'; }
                       return `<td style="background-color: ${bg} !important; color: ${tc} !important; text-align: center; font-weight: bold; border: 1px solid #fff;">${Math.round(cellAcc)}%</td>`;
                     }).join('')}
                   </tr>
@@ -739,11 +741,18 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
                     const mockVariance = ((rowIndex + colIndex) % 3) * 10 - 10;
                     const cellAcc = Math.max(0, Math.min(100, item.accuracy + mockVariance));
                     let bgColor = colors.border;
-                    if (cellAcc > 80) bgColor = colors.primaryDark || '#14532d';
-                    else if (cellAcc >= 50) bgColor = colors.primary;
+                    let textColor = colors.textSecondary;
+                    if (cellAcc >= 90) { bgColor = '#14532d'; textColor = '#fff'; }
+                    else if (cellAcc >= 75) { bgColor = '#15803d'; textColor = '#fff'; }
+                    else if (cellAcc >= 60) { bgColor = colors.primary; textColor = '#fff'; }
+                    else if (cellAcc >= 45) { bgColor = '#f59e0b'; textColor = '#fff'; }
+                    else if (cellAcc >= 30) { bgColor = '#f97316'; textColor = '#fff'; }
+                    else if (cellAcc >= 15) { bgColor = '#ef4444'; textColor = '#fff'; }
+                    else if (cellAcc > 0) { bgColor = '#991b1b'; textColor = '#fff'; }
+
                     return (
                       <View key={`cell-${rowIndex}-${colIndex}`} style={[styles.heatmapCell, { backgroundColor: bgColor }]}>
-                        <Text style={[styles.heatmapCellText, { color: cellAcc >= 50 ? '#fff' : colors.textSecondary }]}>
+                        <Text style={[styles.heatmapCellText, { color: textColor }]}>
                           {Math.round(cellAcc)}%
                         </Text>
                       </View>
