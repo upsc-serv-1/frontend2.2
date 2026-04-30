@@ -146,14 +146,22 @@ function StickyHeatmapTable({
                         let opacity = 1;
 
                         if (count > 0) {
-                          // Interpolate Hue from 70 (Yellow-Green) to 225 (Deep Blue)
-                          // Interpolate Lightness from 85% to 30%
                           const ratio = (cappedCount - 1) / 21;
-                          const h = 70 + (ratio * 155);
-                          const s = 65 + (ratio * 20);
-                          const l = 85 - (ratio * 55);
-                          bgColor = `hsl(${h}, ${s}%, ${l}%)`;
-                          textColor = l < 55 ? '#ffffff' : '#065f46';
+                          if (heatmapPalette === 'spectral') {
+                            // Spectral: Yellow-Green to Deep Blue
+                            const h = 70 + (ratio * 155);
+                            const s = 65 + (ratio * 20);
+                            const l = 85 - (ratio * 55);
+                            bgColor = `hsl(${h}, ${s}%, ${l}%)`;
+                            textColor = l < 55 ? '#ffffff' : '#065f46';
+                          } else {
+                            // Ocean: Light Blue to Deep Navy
+                            const h = 210 + (ratio * 15); // Stays in blue range
+                            const s = 60 + (ratio * 35); // Gets more saturated
+                            const l = 90 - (ratio * 65); // Gets much darker
+                            bgColor = `hsl(${h}, ${s}%, ${l}%)`;
+                            textColor = l < 55 ? '#ffffff' : '#1e3a8a';
+                          }
                         } else {
                           opacity = 0.4;
                         }
@@ -228,8 +236,8 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
   const [focusSubject, setFocusSubject] = useState('All');
   const [focusSection, setFocusSection] = useState('All');
   const [focusMicro, setFocusMicro] = useState('All');
-  const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exportSubject, setExportSubject] = useState('');
+  const [heatmapPalette, setHeatmapPalette] = useState<'spectral' | 'ocean'>('spectral');
 
   // Fade animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -881,11 +889,19 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                 if (count > 0) {
                   const capped = Math.min(count, 22);
                   const ratio = (capped - 1) / 21;
-                  const h = 70 + (ratio * 155);
-                  const s = 65 + (ratio * 20);
-                  const l = 85 - (ratio * 55);
-                  bg = `hsl(${h}, ${s}%, ${l}%)`;
-                  tc = l < 55 ? '#ffffff' : '#065f46';
+                  if (heatmapPalette === 'spectral') {
+                    const h = 70 + (ratio * 155);
+                    const s = 65 + (ratio * 20);
+                    const l = 85 - (ratio * 55);
+                    bg = `hsl(${h}, ${s}%, ${l}%)`;
+                    tc = l < 55 ? '#ffffff' : '#065f46';
+                  } else {
+                    const h = 210 + (ratio * 15);
+                    const s = 60 + (ratio * 35);
+                    const l = 90 - (ratio * 65);
+                    bg = `hsl(${h}, ${s}%, ${l}%)`;
+                    tc = l < 55 ? '#ffffff' : '#1e3a8a';
+                  }
                 }
                 return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
               }).join('')}
@@ -1185,16 +1201,33 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
   );
 
   const renderSubjectYearHeatmap = () => (
-    <StickyHeatmapTable
-      title="Subject x Year Heatmap"
-      labelHeader="Subject"
-      years={years}
-      rows={subjectHeatmapRows}
-      baseColor="#2563eb"
-      maxOpacityDivisor={14}
-      colors={colors}
-      onCellPress={(subject, year) => navigateToLearning({ subject, year })}
-    />
+    <View style={styles.blockGap}>
+      <View style={styles.paletteRow}>
+        <Text style={[styles.paletteLabel, { color: colors.textTertiary }]}>HEATMAP THEME:</Text>
+        <TouchableOpacity 
+          style={[styles.paletteChip, heatmapPalette === 'spectral' && { backgroundColor: colors.primary, borderColor: colors.primary }]} 
+          onPress={() => setHeatmapPalette('spectral')}
+        >
+          <Text style={[styles.paletteChipText, { color: heatmapPalette === 'spectral' ? '#fff' : colors.textSecondary }]}>Spectral</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.paletteChip, heatmapPalette === 'ocean' && { backgroundColor: colors.primary, borderColor: colors.primary }]} 
+          onPress={() => setHeatmapPalette('ocean')}
+        >
+          <Text style={[styles.paletteChipText, { color: heatmapPalette === 'ocean' ? '#fff' : colors.textSecondary }]}>Ocean Blue</Text>
+        </TouchableOpacity>
+      </View>
+      <StickyHeatmapTable
+        title="Subject x Year Heatmap"
+        labelHeader="Subject"
+        years={years}
+        rows={subjectHeatmapRows}
+        baseColor="#2563eb"
+        maxOpacityDivisor={14}
+        colors={colors}
+        onCellPress={(subject, year) => navigateToLearning({ subject, year })}
+      />
+    </View>
   );
 
   const renderTopicYearHeatmap = () => (
@@ -1589,4 +1622,8 @@ const styles = StyleSheet.create({
   exportGroupLabel: { fontSize: 11, fontWeight: '900', letterSpacing: 0.8, marginBottom: 8 },
   exportActionBtn: { minHeight: 48, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, marginBottom: 10 },
   exportActionText: { fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  paletteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12, marginTop: 4 },
+  paletteLabel: { fontSize: 10, fontWeight: '800', marginRight: 4 },
+  paletteChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0' },
+  paletteChipText: { fontSize: 11, fontWeight: '700' },
 });
