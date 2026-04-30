@@ -307,17 +307,21 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
             <h2>${esc(title)}</h2>
             <div class="chart-card">
               <svg viewBox="0 0 ${widthSvg} ${heightSvg}" width="100%" height="${heightSvg}">
+                <rect x="${left}" y="${top}" width="${plotW}" height="${plotH}" fill="#f8fafc" rx="4" />
+                ${[0, 25, 50, 75, 100].map(v => {
+                  const ly = top + plotH - (v / 100) * plotH;
+                  return `<line x1="${left}" y1="${ly}" x2="${widthSvg - right}" y2="${ly}" stroke="#e2e8f0" stroke-width="1" />`;
+                }).join('')}
                 ${data.map((d, i) => {
                   const x = left + i * (barW + gap) + gap/2;
-                  const h = (d.value / max) * plotH;
+                  const h = Math.max(2, (d.value / 100) * plotH); // Ensure at least 2px height
                   const y = top + plotH - h;
                   return `
-                    <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" rx="4" />
-                    <text x="${x + barW/2}" y="${heightSvg - 10}" text-anchor="middle" font-size="10" fill="#475569">${esc(d.label)}</text>
-                    <text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}">${Math.round(d.value)}%</text>
+                    <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" rx="4" style="fill: ${color} !important;" />
+                    <text x="${x + barW/2}" y="${heightSvg - 10}" text-anchor="middle" font-size="10" font-weight="bold" fill="#475569">${esc(d.label)}</text>
+                    <text x="${x + barW/2}" y="${y - 5}" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}" style="fill: ${color} !important;">${Math.round(d.value)}%</text>
                   `;
                 }).join('')}
-                <line x1="${left}" y1="${top + plotH}" x2="${widthSvg - right}" y2="${top + plotH}" stroke="#e2e8f0" />
               </svg>
             </div>
           </div>
@@ -336,14 +340,19 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
 
         let currentAngle = -90;
         const segments = data.map((d, i) => {
+          if (total === 0) return '';
           const angle = (d.count / total) * 360;
+          if (angle >= 359.9) {
+             return `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${chartColors[i % chartColors.length]}" stroke-width="${strokeWidth}" style="stroke: ${chartColors[i % chartColors.length]} !important;" />`;
+          }
           const startX = center + radius * Math.cos((currentAngle * Math.PI) / 180);
           const startY = center + radius * Math.sin((currentAngle * Math.PI) / 180);
           currentAngle += angle;
           const endX = center + radius * Math.cos((currentAngle * Math.PI) / 180);
           const endY = center + radius * Math.sin((currentAngle * Math.PI) / 180);
           const largeArc = angle > 180 ? 1 : 0;
-          return `<path d="M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY}" fill="none" stroke="${chartColors[i % chartColors.length]}" stroke-width="${strokeWidth}" />`;
+          const color = chartColors[i % chartColors.length];
+          return `<path d="M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" style="stroke: ${color} !important;" />`;
         }).join('');
 
         return `
@@ -395,11 +404,14 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
                     ${lastTests.map((t, colIndex) => {
                       const mockVar = ((rowIndex + colIndex) % 3) * 10 - 10;
                       const cellAcc = Math.max(0, Math.min(100, item.accuracy + mockVar));
-                      let bg = '#f1f5f9';
-                      let tc = '#475569';
-                      if (cellAcc > 80) { bg = '#14532d'; tc = '#fff'; }
+                      let bg = '#f8fafc';
+                      let tc = '#64748b';
+                      if (cellAcc >= 85) { bg = '#14532d'; tc = '#fff'; }
+                      else if (cellAcc >= 70) { bg = '#166534'; tc = '#fff'; }
                       else if (cellAcc >= 50) { bg = '#4f46e5'; tc = '#fff'; }
-                      return `<td style="background-color: ${bg} !important; color: ${tc}; text-align: center; font-weight: bold;">${Math.round(cellAcc)}%</td>`;
+                      else if (cellAcc >= 30) { bg = '#f59e0b'; tc = '#fff'; }
+                      else if (cellAcc > 0) { bg = '#ef4444'; tc = '#fff'; }
+                      return `<td style="background-color: ${bg} !important; color: ${tc} !important; text-align: center; font-weight: bold; border: 1px solid #fff;">${Math.round(cellAcc)}%</td>`;
                     }).join('')}
                   </tr>
                 `).join('')}
