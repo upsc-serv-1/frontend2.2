@@ -18,24 +18,15 @@ import {
   ArrowLeft, 
   Play, 
   Plus, 
-  Filter, 
-  Search, 
-  ChevronDown, 
-  MoreVertical, 
-  Clock, 
-  CheckCircle2, 
   BookOpen,
   SortAsc,
   SortDesc,
-  Edit2,
-  Trash2,
-  MoreHorizontal,
   X
 } from 'lucide-react-native';
-import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
+import { FlashcardSvc } from '../../src/services/FlashcardService';
 
 const { width } = Dimensions.get('window');
 
@@ -44,9 +35,11 @@ interface CardItem {
   front_text: string;
   back_text: string;
   status: 'active' | 'frozen';
-  learning_status: 'not_studied' | 'learning' | 'mastered';
+  learning_status: 'not_studied' | 'learning' | 'review' | 'mastered' | 'leech';
   next_review?: string;
   updated_at: string;
+  preview?: string;
+  user_note?: string;
 }
 
 export default function MicrotopicModal() {
@@ -70,53 +63,34 @@ export default function MicrotopicModal() {
   const loadCards = async () => {
     setLoading(true);
     try {
-      // 1. Get cards in this microtopic
-      const { data: baseCards, error: bErr } = await supabase
-        .from('cards')
-        .select('*')
-        .eq('subject', subject)
-        .eq('section_group', section === "General" ? null : section)
-        .eq('microtopic', microtopic);
-      
-      if (bErr) throw bErr;
+      const userId = session!.user.id;
+      const sec = (section as string) || 'General';
 
-      // 2. Get user's progress for these cards
-      const cardIds = (baseCards || []).map(c => c.id);
-      const { data: progress, error: pErr } = await supabase
-        .from('user_cards')
-        .select('*')
-        .eq('user_id', session?.user.id)
-        .in('card_id', cardIds);
-      
-      if (pErr) throw pErr;
+      const [summary, items] = await Promise.all([
+        FlashcardSvc.getDeckSummary(userId, subject as string, sec, microtopic as string),
+        FlashcardSvc.listCardsWithProgress(userId, subject as string, sec, microtopic as string),
+      ]);
 
-      const progressMap = new Map();
-      progress?.forEach(p => progressMap.set(p.card_id, p));
-
-      const merged: CardItem[] = (baseCards || []).map(bc => {
-        const p = progressMap.get(bc.id);
-        return {
-          id: bc.id,
-          front_text: bc.front_text || bc.question_text || bc.question || '',
-          back_text: bc.back_text || bc.answer_text || bc.answer || '',
-          status: p?.status || 'active',
-          learning_status: p?.learning_status || 'not_studied',
-          next_review: p?.next_review,
-          updated_at: p?.updated_at || bc.created_at
-        };
+      setStats({
+        due: summary.due_count ?? 0,
+        new: summary.new_count ?? 0,
+        learning: summary.learning_count ?? 0,
+        mastered: summary.mastered_count ?? 0,
       });
+
+      const merged: CardItem[] = items.map((it: any) => ({
+        id: it.id,
+        front_text: it.front_text || it.question_text || '',
+        back_text: it.back_text || it.answer_text || '',
+        status: it.status || 'active',
+        learning_status: it.learning_status || 'not_studied',
+        next_review: it.next_review,
+        updated_at: it.updated_at || it.created_at,
+        preview: it.preview,
+        user_note: it.user_note,
+      }));
 
       setCards(merged);
-      
-      // Calculate Stats
-      const now = new Date();
-      setStats({
-        due: merged.filter(c => c.status === 'active' && (!c.next_review || new Date(c.next_review) <= now)).length,
-        new: merged.filter(c => c.learning_status === 'not_studied').length,
-        learning: merged.filter(c => c.learning_status === 'learning').length,
-        mastered: merged.filter(c => c.learning_status === 'mastered').length
-      });
-
     } catch (err) {
       console.error(err);
     } finally {
@@ -128,12 +102,14 @@ export default function MicrotopicModal() {
     let result = [...cards];
     
     // Filter
-    if (filterBy !== 'all') {
-      if (filterBy === 'frozen') result = result.filter(c => c.status === 'frozen');
-      else if (filterBy === 'not_studied') result = result.filter(c => c.learning_status === 'not_studied');
-      else result = result.filter(c => c.learning_status === filterBy);
-    } else {
-      result = result.filter(c => c.status === 'active');
+    if (filterBy === 'all') result = result.filter(c => c.status === 'active');
+    else if (filterBy === 'frozen') result = result.filter(c => c.status === 'frozen');
+    else if (filterBy === 'new') result = result.filter(c => c.status === 'active' && c.learning_status === 'not_studied');
+    else if (filterBy === 'mastered') result = result.filter(c => c.status === 'active' && c.learning_status === 'mastered');
+    else if (filterBy === 'learning') result = result.filter(c => c.status === 'active' && (c.learning_status === 'learning' || c.learning_status === 'review'));
+    else if (filterBy === 'due') {
+      const now = Date.now();
+      result = result.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now);
     }
 
     // Sort
@@ -152,30 +128,45 @@ export default function MicrotopicModal() {
     return result;
   }, [cards, sortBy, filterBy]);
 
-  const renderCardItem = ({ item }: { item: CardItem }) => (
-    <TouchableOpacity 
-      style={[styles.cardItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
-      onPress={() => router.push({ 
-        pathname: '/flashcards/review', 
-        params: { microtopic, subject, section, cardId: item.id } 
-      })}
-    >
-      <View style={styles.cardTop}>
-        <View style={[styles.statusDot, { backgroundColor: item.learning_status === 'mastered' ? '#34c759' : item.learning_status === 'learning' ? '#3b82f6' : '#94a3b8' }]} />
-        <Text style={[styles.cardPreview, { color: colors.textPrimary }]} numberOfLines={2}>
-          {item.front_text}
-        </Text>
-        <TouchableOpacity>
-          <MoreHorizontal size={18} color={colors.textTertiary} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.cardBottom}>
-        <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
-          {item.learning_status.toUpperCase()} • Next: {item.next_review ? new Date(item.next_review).toLocaleDateString() : 'New'}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderCardItem = ({ item }: { item: CardItem }) => {
+    const showText = item.user_note?.trim()
+      ? item.user_note
+      : (item.preview || item.front_text || '').replace(/\n+/g, ' ');
+    const dueDate = item.next_review ? new Date(item.next_review) : null;
+    const daysUntil = dueDate ? Math.ceil((dueDate.getTime() - Date.now()) / 86400000) : null;
+    const dueLabel = daysUntil === null ? 'New'
+      : daysUntil <= 0 ? 'Due today'
+      : daysUntil === 1 ? 'Tomorrow'
+      : `in ${daysUntil}d`;
+
+    return (
+      <TouchableOpacity
+        style={[styles.cardItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        onPress={() => router.push({
+          pathname: '/flashcards/review',
+          params: { microtopic, subject, section, cardId: item.id },
+        })}
+      >
+        <View style={styles.cardTop}>
+          <View style={[styles.statusDot, {
+            backgroundColor:
+              item.status === 'frozen' ? '#94a3b8' :
+              item.learning_status === 'mastered' ? '#34c759' :
+              item.learning_status === 'learning' ? '#3b82f6' :
+              item.learning_status === 'leech' ? '#ef4444' : '#cbd5e1',
+          }]} />
+          <Text style={[styles.cardPreview, { color: colors.textPrimary }]} numberOfLines={2}>
+            {showText || 'Untitled card'}
+          </Text>
+        </View>
+        <View style={styles.cardBottom}>
+          <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
+            {item.learning_status.replace('_', ' ').toUpperCase()} • {dueLabel}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <PageWrapper>
@@ -228,10 +219,16 @@ export default function MicrotopicModal() {
             <View style={styles.listHeader}>
               <View style={styles.filterRow}>
                 <TouchableOpacity style={[styles.filterChip, filterBy === 'all' && { backgroundColor: colors.primary }]} onPress={() => setFilterBy('all')}>
-                  <Text style={[styles.filterText, filterBy === 'all' && { color: '#fff' }]}>Active</Text>
+                  <Text style={[styles.filterText, filterBy === 'all' && { color: '#fff' }]}>All Active</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'not_studied' && { backgroundColor: '#94a3b8' }]} onPress={() => setFilterBy('not_studied')}>
-                  <Text style={[styles.filterText, filterBy === 'not_studied' && { color: '#fff' }]}>New</Text>
+                <TouchableOpacity style={[styles.filterChip, filterBy === 'due' && { backgroundColor: '#f59e0b' }]} onPress={() => setFilterBy('due')}>
+                  <Text style={[styles.filterText, filterBy === 'due' && { color: '#fff' }]}>Due</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.filterChip, filterBy === 'new' && { backgroundColor: '#94a3b8' }]} onPress={() => setFilterBy('new')}>
+                  <Text style={[styles.filterText, filterBy === 'new' && { color: '#fff' }]}>New</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.filterChip, filterBy === 'learning' && { backgroundColor: '#3b82f6' }]} onPress={() => setFilterBy('learning')}>
+                  <Text style={[styles.filterText, filterBy === 'learning' && { color: '#fff' }]}>Learning</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.filterChip, filterBy === 'mastered' && { backgroundColor: '#34c759' }]} onPress={() => setFilterBy('mastered')}>
                   <Text style={[styles.filterText, filterBy === 'mastered' && { color: '#fff' }]}>Mastered</Text>
@@ -281,7 +278,7 @@ export default function MicrotopicModal() {
                 keyExtractor={item => item.id}
                 renderItem={({ item }) => (
                   <TouchableOpacity style={[styles.selectableItem, { borderColor: colors.border }]}>
-                    <Text style={[styles.selectableText, { color: colors.textPrimary }]} numberOfLines={2}>{item.question}</Text>
+                    <Text style={[styles.selectableText, { color: colors.textPrimary }]} numberOfLines={2}>{item.front_text}</Text>
                     <View style={[styles.checkbox, { borderColor: colors.primary }]} />
                   </TouchableOpacity>
                 )}
