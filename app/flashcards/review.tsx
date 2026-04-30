@@ -421,13 +421,14 @@ export default function ReviewScreen() {
                       let rawText = (currentCard.front_text || currentCard.question_text || currentCard.question || '').trim();
 
                       // REPAIR: If options missing from metadata, extract from rawText.
-                      // Matches: (A)..(E), (a)..(e), [A]..[E], A)..E), A.  B.  — case-insensitive.
+                      // Priority 1: Alphabetic (A)-(E)
+                      // Priority 2: Numeric (1)-(5) only if no alphabetic found
                       if (Object.keys(normalizedOptions).length === 0 && rawText) {
-                        const patterns = [
-                          /[(\[]([A-Ea-e1-5])[)\]]\s*([\s\S]*?)(?=\s*[(\[][A-Ea-e1-5][)\]]|$)/g,
-                          /(?:^|\n)\s*([A-Ea-e1-5])[.):]\s+([\s\S]*?)(?=\n\s*[A-Ea-e1-5][.):]\s+|$)/g,
+                        const alphaPatterns = [
+                          /[(\[]([A-Ea-e])[)\]]\s*([\s\S]*?)(?=\s*[(\[][A-Ea-e][)\]]|$)/g,
+                          /(?:^|\n)\s*([A-Ea-e])[.):]\s+([\s\S]*?)(?=\n\s*[A-Ea-e][.):]\s+|$)/g,
                         ];
-                        for (const rgx of patterns) {
+                        for (const rgx of alphaPatterns) {
                           let m: RegExpExecArray | null;
                           while ((m = rgx.exec(rawText)) !== null) {
                             const key = m[1].toLowerCase();
@@ -436,28 +437,41 @@ export default function ReviewScreen() {
                           }
                           if (Object.keys(normalizedOptions).length >= 2) break;
                         }
+
+                        // Only if still no options, try numeric
+                        if (Object.keys(normalizedOptions).length === 0) {
+                          const numPatterns = [
+                            /[(\[]([1-5])[)\]]\s*([\s\S]*?)(?=\s*[(\[][1-5][)\]]|$)/g,
+                            /(?:^|\n)\s*([1-5])[.):]\s+([\s\S]*?)(?=\n\s*[1-5][.):]\s+|$)/g,
+                          ];
+                          for (const rgx of numPatterns) {
+                            let m: RegExpExecArray | null;
+                            while ((m = rgx.exec(rawText)) !== null) {
+                              const key = m[1].toLowerCase();
+                              const val = m[2].trim();
+                              if (val && !normalizedOptions[key]) normalizedOptions[key] = val;
+                            }
+                            if (Object.keys(normalizedOptions).length >= 2) break;
+                          }
+                        }
                       }
 
-                      // Canonical order: a,b,c,d,e then 1..5
+                      // Canonical order
                       const orderKey = (k: string) =>
                         /[a-e]/.test(k) ? k.charCodeAt(0) - 97 : parseInt(k, 10) + 100;
                       const optionEntries = Object.entries(normalizedOptions)
                         .sort((x, y) => orderKey(x[0]) - orderKey(y[0]));
 
-                      if (__DEV__ && optionEntries.length === 0) {
-                        console.warn('[Flashcard] No options detected', {
-                          cardId: currentCard.id,
-                          rawHead: rawText.slice(0, 120),
-                          metaHas: !!(meta as any)?.options,
-                        });
-                      }
-
-                      // Strip option lines from question stem — case-insensitive, covers all shapes used above
-                      const cleanText = rawText
-                        .replace(/[(\[][A-Ea-e1-5][)\]]\s*[\s\S]*?(?=\s*[(\[][A-Ea-e1-5][)\]]|$)/g, '')
-                        .replace(/(?:^|\n)\s*[A-Ea-e1-5][.):]\s+[\s\S]*?(?=\n\s*[A-Ea-e1-5][.):]\s+|$)/g, '')
-                        .replace(/\n{3,}/g, '\n\n')
-                        .trim();
+                      // Strip ONLY the patterns that match the keys we actually used as options
+                      let cleanText = rawText;
+                      optionEntries.forEach(([k]) => {
+                        const escapedK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        // Strip (K) or K. or K)
+                        const stripRgx = new RegExp(`(?:[(\\[]${escapedK}[)\\]]|(?:^|\\n)\\s*${escapedK}[.):])\\s*[\\s\\S]*?(?=\\s*[(\\[][A-Ea-e1-5][)\\]]|(?:^|\\n)\\s*[A-Ea-e1-5][.):]|$)`, 'gi');
+                        cleanText = cleanText.replace(stripRgx, '');
+                      });
+                      
+                      cleanText = cleanText.replace(/\n{3,}/g, '\n\n').trim();
 
                       return (
                         <>
