@@ -206,4 +206,69 @@ export class FlashcardBranchService {
     
     return Array.from(new Set(mappings?.map(m => m.card_id) || []));
   }
+
+  static async ensureDefaultBranch(userId: string, subject: string, section: string, microtopic: string): Promise<string> {
+    const sub = subject || 'General';
+    const sec = section || 'General';
+    const mt = microtopic || 'General';
+
+    // 1. Ensure Subject
+    const { data: subBranch } = await supabase
+      .from('flashcard_branches')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', sub)
+      .is('parent_id', null)
+      .maybeSingle();
+    
+    let subId = subBranch?.id;
+    if (!subId) {
+      const { data: newSub } = await supabase
+        .from('flashcard_branches')
+        .insert({ user_id: userId, name: sub, parent_id: null })
+        .select('id')
+        .single();
+      subId = newSub?.id;
+    }
+
+    // 2. Ensure Section
+    const { data: secBranch } = await supabase
+      .from('flashcard_branches')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', sec)
+      .eq('parent_id', subId)
+      .maybeSingle();
+    
+    let secId = secBranch?.id;
+    if (!secId) {
+      const { data: newSec } = await supabase
+        .from('flashcard_branches')
+        .insert({ user_id: userId, name: sec, parent_id: subId })
+        .select('id')
+        .single();
+      secId = newSec?.id;
+    }
+
+    // 3. Ensure Microtopic
+    const { data: mtBranch } = await supabase
+      .from('flashcard_branches')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', mt)
+      .eq('parent_id', secId)
+      .maybeSingle();
+    
+    let mtId = mtBranch?.id;
+    if (!mtId) {
+      const { data: newMt } = await supabase
+        .from('flashcard_branches')
+        .insert({ user_id: userId, name: mt, parent_id: secId })
+        .select('id')
+        .single();
+      mtId = newMt?.id;
+    }
+
+    return mtId!;
+  }
 }

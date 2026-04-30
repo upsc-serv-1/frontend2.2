@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { usePreventRemove, useNavigation } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -68,7 +69,6 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useQuizStore } from '../../src/store/quizStore';
 import { mergeQuestions } from '../../src/utils/merger';
 import Markdown from 'react-native-markdown-display';
-import * as Haptics from 'expo-haptics';
 import { StudentSync } from '../../src/services/StudentSync';
 import { uuidv4 } from '../../src/utils/uuid';
 import { FlashcardSvc } from '../../src/services/FlashcardService';

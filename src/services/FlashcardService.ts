@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { FlashcardBranchService } from './FlashcardBranchService';
 import { applySM2 } from './sm2';
 import { FlashcardLocalCache } from './FlashcardLocalCache';
 
@@ -132,7 +133,11 @@ export class FlashcardSvc {
       card = data;
     }
 
-    await this.linkUserCard(userId, card!.id);
+    await this.linkUserCard(userId, card!.id, {
+      subject: input.subject,
+      section: input.section_group,
+      microtopic: input.microtopic
+    });
     return card!.id;
   }
 
@@ -258,7 +263,11 @@ export class FlashcardSvc {
 
       await supabase.from('cards').update(updateData).eq('id', card.id);
 
-      await this.linkUserCard(userId, card.id);
+      await this.linkUserCard(userId, card.id, {
+        subject: q.subject,
+        section: q.section_group,
+        microtopic: q.micro_topic || q.microtopic
+      });
       return card.id;
     }
 
@@ -285,7 +294,11 @@ export class FlashcardSvc {
       .single();
 
     if (error) throw error;
-    await this.linkUserCard(userId, inserted.id);
+    await this.linkUserCard(userId, inserted.id, {
+      subject: q.subject,
+      section: q.section_group,
+      microtopic: q.micro_topic || q.microtopic
+    });
     return inserted.id;
   }
 
@@ -294,7 +307,7 @@ export class FlashcardSvc {
     return this.createFromQuestion(userId, q);
   }
 
-  private static async linkUserCard(userId: string, cardId: string) {
+  private static async linkUserCard(userId: string, cardId: string, metadata?: { subject?: string, section?: string, microtopic?: string }) {
     const { data: existing } = await supabase
       .from('user_cards')
       .select('id')
@@ -302,23 +315,41 @@ export class FlashcardSvc {
       .eq('card_id', cardId)
       .maybeSingle();
 
-    if (existing) return;
+    if (!existing) {
+      const { error } = await supabase.from('user_cards').insert({
+        user_id: userId,
+        card_id: cardId,
+        ease_factor: 2.5,
+        interval_days: 0,
+        repetitions: 0,
+        lapses: 0,
+        next_review: new Date().toISOString(),
+        status: 'active',
+        learning_status: 'not_studied',
+        user_note: '',
+        times_seen: 0,
+      });
 
-    const { error } = await supabase.from('user_cards').insert({
-      user_id: userId,
-      card_id: cardId,
-      ease_factor: 2.5,
-      interval_days: 0,
-      repetitions: 0,
-      lapses: 0,
-      next_review: new Date().toISOString(),
-      status: 'active',
-      learning_status: 'not_studied',
-      user_note: '',
-      times_seen: 0,
-    });
+      if (error) throw error;
+    }
 
-    if (error) throw error;
+    // Also link to default branch
+    if (metadata) {
+      try {
+        const branchId = await FlashcardBranchService.ensureDefaultBranch(
+          userId, 
+          metadata.subject || 'General', 
+          metadata.section || 'General', 
+          metadata.microtopic || 'General'
+        );
+        await supabase.from('flashcard_branch_cards').upsert({
+          branch_id: branchId,
+          card_id: cardId
+        }, { onConflict: 'branch_id,card_id' });
+      } catch (err) {
+        console.error('Failed to link branch:', err);
+      }
+    }
   }
 
   // ============ CREATE FROM NOTE BLOCK ============
