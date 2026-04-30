@@ -7,8 +7,6 @@ import {
   TouchableOpacity, 
   SafeAreaView, 
   ActivityIndicator,
-  FlatList,
-  Dimensions,
   LayoutAnimation,
   Platform,
   UIManager,
@@ -20,21 +18,15 @@ import {
   Layers, 
   Play, 
   ChevronRight, 
-  ChevronDown, 
-  MoreVertical, 
   Filter, 
   Search, 
   Plus, 
   Clock, 
-  CheckCircle2, 
-  BookOpen, 
-  Calendar,
-  MoreHorizontal,
   Flame,
-  TrendingUp,
   Snowflake,
   Search as SearchIcon,
-  X
+  X,
+  Check
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
@@ -42,13 +34,10 @@ import { useAuth } from '../src/context/AuthContext';
 import { useTheme } from '../src/context/ThemeContext';
 import { ThemeSwitcher } from '../src/components/ThemeSwitcher';
 import { PageWrapper } from '../src/components/PageWrapper';
-import { FlashcardSvc } from '../src/services/FlashcardService';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-
-const { width } = Dimensions.get('window');
 
 interface TreeItem {
   id: string;
@@ -73,9 +62,6 @@ export default function FlashcardsDashboard() {
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   
   const [heatmapData, setHeatmapData] = useState<Record<string, number>>({});
-  const [weakTopics, setWeakTopics] = useState<string[]>([]);
-
-  // Fade animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(
@@ -106,7 +92,6 @@ export default function FlashcardsDashboard() {
           setHeatmapData(parsed.heatmapData);
           setTreeData(parsed.treeData);
           (global as any).rawHierarchy = parsed.rawHierarchy;
-          // If we have cache, don't show the initial loading spinner
         } else {
           setLoading(true);
         }
@@ -125,10 +110,8 @@ export default function FlashcardsDashboard() {
       ]);
       
       const now = new Date();
-      const userCardMap = new Map(states?.map(s => [s.card_id, s]) || []);
       
       const studied = states?.length || 0;
-      // ONLY count as due if already studied and time is up
       const due = states?.filter(c => 
         c.status === 'active' && 
         c.learning_status !== 'not_studied' && 
@@ -142,64 +125,51 @@ export default function FlashcardsDashboard() {
       sessions?.forEach(s => heatmap[s.date] = s.cards_reviewed);
       setHeatmapData(heatmap);
 
-      const subjects = new Set<string>();
-      const sectionsMap = new Map<string, Set<string>>();
-      const microtopicsMap = new Map<string, Set<string>>();
-      const cardCounts: Record<string, number> = {};
-      const dueCounts: Record<string, number> = {};
-      
-      // We ONLY build the hierarchy from cards the user actually HAS in their deck
+      const hierarchy: any = {};
       states?.forEach(state => {
         const c = cards?.find(x => x.id === state.card_id);
-        if (!c) return;
+        if (!c || state.status === 'deleted') return;
 
-        subjects.add(c.subject);
+        const sub = c.subject;
         const sec = c.section_group || "General";
-        if (!sectionsMap.has(c.subject)) sectionsMap.set(c.subject, new Set());
-        sectionsMap.get(c.subject)!.add(sec);
-        
-        const mKey = `${c.subject}|${sec}`;
-        if (!microtopicsMap.has(mKey)) microtopicsMap.set(mKey, new Set());
-        microtopicsMap.get(mKey)!.add(c.microtopic);
-        
-        const cKey = `${c.subject}|${sec}|${c.microtopic}`;
-        cardCounts[cKey] = (cardCounts[cKey] || 0) + 1;
-        
-        if (state.status === 'active' && state.learning_status !== 'not_studied' && (!state.next_review || new Date(state.next_review) <= now)) {
-          dueCounts[cKey] = (dueCounts[cKey] || 0) + 1;
+        const micro = c.microtopic;
+        const isDue = state.status === 'active' && state.learning_status !== 'not_studied' && (!state.next_review || new Date(state.next_review) <= now);
+
+        if (!hierarchy[sub]) hierarchy[sub] = { name: sub, due: 0, total: 0, sections: {} };
+        if (!hierarchy[sub].sections[sec]) hierarchy[sub].sections[sec] = { name: sec, due: 0, total: 0, microtopics: {} };
+        if (!hierarchy[sub].sections[sec].microtopics[micro]) hierarchy[sub].sections[sec].microtopics[micro] = { name: micro, due: 0, total: 0 };
+
+        if (isDue) {
+          hierarchy[sub].due++;
+          hierarchy[sub].sections[sec].due++;
+          hierarchy[sub].sections[sec].microtopics[micro].due++;
         }
+        hierarchy[sub].total++;
+        hierarchy[sub].sections[sec].total++;
+        hierarchy[sub].sections[sec].microtopics[micro].total++;
       });
 
-      const total = studied; // Total cards in MY deck
-
-      const initialTree: TreeItem[] = Array.from(subjects).sort().map(s => ({
-        id: s,
-        name: s,
+      const initialTree: TreeItem[] = Object.keys(hierarchy).sort().map(sub => ({
+        id: sub,
+        name: sub,
         type: 'subject',
         parentId: null,
-        cardCount: 0,
-        dueCount: 0,
+        cardCount: hierarchy[sub].total,
+        dueCount: hierarchy[sub].due,
         isOpen: false,
         level: 0
       }));
 
-      const newStats = { total, due, mastered, streak: sessions?.length || 0, accuracy };
+      const newStats = { total: studied, due, mastered, streak: sessions?.length || 0, accuracy };
       setStats(newStats);
       setTreeData(initialTree);
-      const rawHierarchy = { 
-        sectionsMap: Object.fromEntries(Array.from(sectionsMap.entries()).map(([k, v]) => [k, Array.from(v)])), 
-        microtopicsMap: Object.fromEntries(Array.from(microtopicsMap.entries()).map(([k, v]) => [k, Array.from(v)])), 
-        cardCounts,
-        dueCounts
-      };
-      (global as any).rawHierarchy = rawHierarchy;
+      (global as any).rawHierarchy = hierarchy;
 
-      // Save to cache
       await AsyncStorage.setItem(cacheKey, JSON.stringify({
         stats: newStats,
         heatmapData: heatmap,
         treeData: initialTree,
-        rawHierarchy
+        rawHierarchy: hierarchy
       }));
 
     } catch (err) {
@@ -209,42 +179,63 @@ export default function FlashcardsDashboard() {
     }
   };
 
-  const toggleNode = (item: TreeItem) => {
+  const toggleNode = (item: TreeItem, forceExpand = false) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    if (item.type === 'microtopic') {
-      router.push({ 
-        pathname: '/flashcards/microtopic', 
-        params: { subject: item.id.split('|')[0], section: item.id.split('|')[1], microtopic: item.name } 
-      });
-      return;
-    }
-
-    if (item.isOpen) {
-      setTreeData(prev => prev.filter(n => n.parentId !== item.id && !n.id.startsWith(item.id + '|')).map(n => n.id === item.id ? { ...n, isOpen: false } : n));
+    
+    if (item.isOpen && !forceExpand) {
+      setTreeData(prev => prev.filter(n => {
+        if (n.parentId === item.id) return false;
+        if (n.parentId && n.parentId.startsWith(item.id + '|')) return false;
+        return true;
+      }).map(n => n.id === item.id ? { ...n, isOpen: false } : n));
     } else {
-      const { sectionsMap, microtopicsMap, cardCounts, dueCounts } = (global as any).rawHierarchy;
+      const hierarchy = (global as any).rawHierarchy;
       let children: TreeItem[] = [];
+      
       if (item.type === 'subject') {
-        const sections = (sectionsMap[item.id] || []).sort();
-        children = sections.map((s: string) => {
-          const sKeyPrefix = `${item.id}|${s}|`;
-          const sCardCount = Object.entries(cardCounts).filter(([k]) => k.startsWith(sKeyPrefix)).reduce((a, b) => a + (b[1] as number), 0);
-          const sDueCount = Object.entries(dueCounts).filter(([k]) => k.startsWith(sKeyPrefix)).reduce((a, b) => a + (b[1] as number), 0);
-          return { id: `${item.id}|${s}`, name: s, type: 'section', parentId: item.id, cardCount: sCardCount, dueCount: sDueCount, isOpen: false, level: 1 };
-        });
+        const subData = hierarchy[item.id];
+        children = Object.keys(subData.sections).sort().map(sec => ({
+          id: `${item.id}|${sec}`,
+          name: sec,
+          type: 'section',
+          parentId: item.id,
+          cardCount: subData.sections[sec].total,
+          dueCount: subData.sections[sec].due,
+          isOpen: false,
+          level: 1
+        }));
       } else if (item.type === 'section') {
-        const micros = (microtopicsMap[item.id] || []).sort();
-        children = micros.map((m: string) => {
-          const mKey = `${item.id}|${m}`;
-          return { id: mKey, name: m, type: 'microtopic', parentId: item.id, cardCount: cardCounts[mKey] || 0, dueCount: dueCounts[mKey] || 0, isOpen: false, level: 2 };
-        });
+        const [sub, sec] = item.id.split('|');
+        const secData = hierarchy[sub].sections[sec];
+        children = Object.keys(secData.microtopics).sort().map(micro => ({
+          id: `${item.id}|${micro}`,
+          name: micro,
+          type: 'microtopic',
+          parentId: item.id,
+          cardCount: secData.microtopics[micro].total,
+          dueCount: secData.microtopics[micro].due,
+          isOpen: false,
+          level: 2
+        }));
       }
+
       const index = treeData.findIndex(n => n.id === item.id);
       const next = [...treeData];
       next[index] = { ...item, isOpen: true };
       next.splice(index + 1, 0, ...children);
       setTreeData(next);
     }
+  };
+
+  const openStudySession = (item: TreeItem) => {
+    const params: any = { mode: 'due' };
+    if (item.type === 'subject') {
+      params.subject = item.name;
+    } else if (item.type === 'section') {
+      params.subject = item.id.split('|')[0];
+      params.section = item.name;
+    }
+    router.push({ pathname: '/flashcards/review', params });
   };
 
   const renderHeatmap = () => {
@@ -279,23 +270,62 @@ export default function FlashcardsDashboard() {
 
   const renderTreeItem = ({ item }: { item: TreeItem }) => {
     const isSubject = item.type === 'subject';
-    const paddingLeft = item.level * 24 + 16;
+    const isMicro = item.type === 'microtopic';
+    const paddingLeft = item.level * 32 + 20;
+    const hasChildren = !isMicro;
+
     return (
       <View key={item.id} style={styles.treeRowContainer}>
-        {item.level > 0 && <View style={[styles.vLine, { left: (item.level - 1) * 24 + 26, backgroundColor: colors.border }]} />}
-        <TouchableOpacity 
-          style={[styles.treeRow, { paddingLeft, backgroundColor: isSubject ? colors.surface : 'transparent' }, isSubject && styles.subjectRow]}
-          onPress={() => toggleNode(item)}
-        >
-          {item.type !== 'microtopic' ? (
-            item.isOpen ? <ChevronDown size={18} color={colors.textPrimary} /> : <ChevronRight size={18} color={colors.textPrimary} />
-          ) : <View style={{ width: 18 }} />}
-          <View style={styles.treeNodeInfo}>
-            <Text style={[styles.nodeName, { color: isSubject ? colors.textPrimary : colors.textPrimary }]}>{item.name}</Text>
-            {item.cardCount > 0 && <Text style={[styles.nodeCount, { color: isSubject ? colors.textTertiary : colors.textTertiary }]}>{item.cardCount} cards</Text>}
-          </View>
-          {item.type === 'microtopic' && <Play size={14} color={colors.primary} style={{ marginRight: 8 }} />}
-        </TouchableOpacity>
+        {item.level > 0 && (
+          <View style={[
+            styles.vLine, 
+            { 
+              left: (item.level - 1) * 32 + 34, 
+              backgroundColor: colors.border,
+              top: -14,
+              bottom: item.isOpen ? 0 : 20 
+            }
+          ]} />
+        )}
+        
+        <View style={[styles.treeRow, { paddingLeft }]}>
+          {hasChildren ? (
+            <TouchableOpacity 
+              onPress={() => toggleNode(item)}
+              style={[styles.expandBtn, { backgroundColor: colors.surfaceStrong }]}
+            >
+              {item.isOpen ? <X size={14} color={colors.textPrimary} /> : <Plus size={14} color={colors.textPrimary} />}
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+               <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.textTertiary }} />
+            </View>
+          )}
+
+          <TouchableOpacity 
+            style={styles.nodeContent} 
+            onPress={() => {
+              if (isMicro) {
+                router.push({ 
+                  pathname: '/flashcards/microtopic', 
+                  params: { subject: item.id.split('|')[0], section: item.id.split('|')[1], microtopic: item.name } 
+                });
+              } else {
+                openStudySession(item);
+              }
+            }}
+          >
+            <Text style={[
+              styles.nodeName, 
+              { color: colors.textPrimary, fontSize: isSubject ? 20 : 16, fontWeight: isSubject ? '800' : '700' }
+            ]}>
+              {item.name}
+            </Text>
+            <Text style={[styles.nodeSub, { color: colors.textTertiary }]}>
+              Cards for today: <Text style={{ fontWeight: '800', color: item.dueCount > 0 ? colors.primary : colors.textTertiary }}>{item.dueCount}</Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -304,7 +334,6 @@ export default function FlashcardsDashboard() {
     <PageWrapper>
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
         <ScrollView stickyHeaderIndices={[0]} showsVerticalScrollIndicator={false}>
-          {/* HEADER ALWAYS VISIBLE */}
           <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
             <View style={styles.headerTop}>
               <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Deck Hub</Text>
@@ -402,8 +431,8 @@ const styles = StyleSheet.create({
   treeRowContainer: { position: 'relative' },
   vLine: { position: 'absolute', top: 0, bottom: 0, width: 1.5, zIndex: -1 },
   treeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingRight: 20 },
-  subjectRow: { borderTopWidth: 1, borderBottomWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)', borderBottomColor: 'rgba(0,0,0,0.05)', marginVertical: 4 },
-  treeNodeInfo: { flex: 1, marginLeft: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  expandBtn: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  nodeContent: { flex: 1, marginLeft: 12 },
   nodeName: { fontSize: 16, fontWeight: '700' },
-  nodeCount: { fontSize: 12, fontWeight: '600' }
+  nodeSub: { fontSize: 12, marginTop: 2 }
 });

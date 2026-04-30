@@ -112,6 +112,10 @@ export default function ReviewScreen() {
         } else {
           query = query.or('section_group.is.null,section_group.ilike.General');
         }
+      } else if (selectedSection) {
+        query = query.ilike('subject', selectedSubject).ilike('section_group', selectedSection);
+      } else if (selectedSubject) {
+        query = query.ilike('subject', selectedSubject);
       }
 
       const { data: baseCards } = await query;

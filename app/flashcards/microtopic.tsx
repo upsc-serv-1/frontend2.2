@@ -24,7 +24,8 @@ import {
   SortAsc,
   SortDesc,
   X,
-  Trash2
+  Trash2,
+  Check
 } from 'lucide-react-native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
