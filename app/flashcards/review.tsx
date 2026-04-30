@@ -384,7 +384,12 @@ export default function ReviewScreen() {
 
                     {/* Render Interactive Options */}
                     {(() => {
-                      const options = currentCard.source?.options || currentCard.options || {};
+                      let meta = currentCard.source;
+                      if (typeof meta === 'string') {
+                        try { meta = JSON.parse(meta); } catch(e) { meta = {}; }
+                      }
+
+                      const options = (meta as any)?.options || currentCard.options || {};
                       const optionEntries = Object.entries(options);
                       if (optionEntries.length === 0) return null;
 

@@ -200,9 +200,10 @@ export class FlashcardSvc {
           institutes: newInstitutes,
           merged_from: alreadyPresent ? card.merged_from : [...(card.merged_from || []), q.id],
           back_text: updatedBack,
-          front_text: shouldUpdateFront ? front_text : card.front_text, // REPAIR front if missing options
+          front_text: shouldUpdateFront ? front_text : card.front_text,
           answer_text: updatedBack,
-          question_text: shouldUpdateFront ? front_text : card.front_text
+          question_text: shouldUpdateFront ? front_text : card.front_text,
+          source: { kind: 'question', question_id: q.id, options: opts } // REPAIR metadata
         }).eq('id', card.id);
       }
       await this.linkUserCard(userId, card.id);
