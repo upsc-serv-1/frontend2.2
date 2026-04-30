@@ -119,7 +119,6 @@ export default function NotesProScreen() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [expandedMicroTopics, setExpandedMicroTopics] = useState<Record<string, boolean>>({});
   const [actionNote, setActionNote] = useState<PilotNoteNode | null>(null);
-  const [folderActionTarget, setFolderActionTarget] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [moveNoteVisible, setMoveNoteVisible] = useState(false);
   const [moveTarget, setMoveTarget] = useState<any>(null);
@@ -128,6 +127,11 @@ export default function NotesProScreen() {
   const [moveTargetType, setMoveTargetType] = useState<'note' | 'folder' | null>(null);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [createType, setCreateType] = useState<'folder' | 'note'>('note');
+  // PATCH 2: folder/note actions sheet
+  const [folderAction, setFolderAction] = useState<{ id: string; name: string; type: 'folder' | 'note'; note_id?: string } | null>(null);
+  const [renameVisible, setRenameVisible] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
   const [createParentId, setCreateParentId] = useState<string | null>(null);
   const [newItemName, setNewItemName] = useState('');
   const [isFABOpen, setIsFABOpen] = useState(false);
@@ -326,10 +330,14 @@ export default function NotesProScreen() {
     setMoveNoteVisible(true);
   };
 
-  const openFolderActions = (folder: any) => {
-    Vibration.vibrate(40);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setFolderActionTarget(folder);
+  const openFolderActions = (item: any, type: 'folder' | 'note') => {
+    Vibration.vibrate(30);
+    setFolderAction({
+      id: item.id,
+      name: item.name || item.title,
+      type,
+      note_id: item.note_id,
+    });
   };
 
   const onNoteLongPress = (note: PilotNoteNode) => {
@@ -443,8 +451,61 @@ export default function NotesProScreen() {
   };
 
   const moveItemToFolder = async (nodeId: string, folderId: string | null) => {
-    console.log(`[NotesMove] Moving node ${nodeId} to folder ${folderId}`);
+    console.log(`[NotesDrag] Dropping node ${nodeId} into folder ${folderId}`);
     await handleMoveAction(nodeId, folderId);
+  };
+
+  // PATCH 2: real rename via RPC
+  const commitRename = async () => {
+    if (!folderAction || !renameValue.trim() || !session?.user?.id) return;
+    setRenameSaving(true);
+    try {
+      const { error } = await supabase.rpc('rename_note_node', {
+        p_node_id: folderAction.id,
+        p_user_id: session.user.id,
+        p_title: renameValue.trim(),
+      });
+      if (error) throw error;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRenameVisible(false);
+      setFolderAction(null);
+      refresh();
+    } catch (e: any) {
+      Alert.alert('Rename failed', e.message || 'Could not rename.');
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
+  // PATCH 2: real cascade delete (folder OR note)
+  const handleDeleteFolderOrNote = async () => {
+    if (!folderAction || !session?.user?.id) return;
+    const label = folderAction.type === 'folder' ? 'folder & all its contents' : 'note';
+    Alert.alert(
+      `Delete ${folderAction.type}`,
+      `Are you sure you want to permanently delete this ${label}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.rpc('delete_note_node_cascade', {
+                p_node_id: folderAction.id,
+                p_user_id: session.user.id,
+              });
+              if (error) throw error;
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setFolderAction(null);
+              refresh();
+            } catch (e: any) {
+              Alert.alert('Delete failed', e.message || 'Could not delete.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const promptRename = async (type: 'note' | 'folder' | 'section' | 'subject' | 'node', id: string, currentName: string) => {
@@ -552,7 +613,8 @@ export default function NotesProScreen() {
       <View style={[styles.treeRow, { paddingLeft: 40 }]}>
         <TouchableOpacity 
           onPress={() => router.push({ pathname: '/notes', params: { sid: topic.id } })}
-          onLongPress={() => openFolderActions(topic)}
+          onLongPress={() => openFolderActions(topic, 'folder')}
+          delayLongPress={350}
           activeOpacity={0.7}
           style={{ flex: 1 }}
         >
@@ -574,7 +636,8 @@ export default function NotesProScreen() {
       <View style={[styles.treeRow, { paddingLeft: 20 }]}>
         <TouchableOpacity 
           onPress={() => router.push({ pathname: '/notes', params: { sid: section.id } })}
-          onLongPress={() => openFolderActions(section)}
+          onLongPress={() => openFolderActions(section, 'folder')}
+          delayLongPress={350}
           activeOpacity={0.7}
           style={{ flex: 1 }}
         >
@@ -595,7 +658,8 @@ export default function NotesProScreen() {
     return (
       <TouchableOpacity
         onPress={() => router.push({ pathname: '/notes', params: { sid: subject.id } })}
-        onLongPress={() => openFolderActions(subject)}
+        onLongPress={() => openFolderActions(subject, 'folder')}
+        delayLongPress={350}
         activeOpacity={0.8}
         style={{ width: COLUMN_WIDTH }}
       >
@@ -1118,72 +1182,115 @@ export default function NotesProScreen() {
         </Pressable>
       </Modal>
 
-      {/* Folder Actions Modal */}
-      <Modal visible={!!folderActionTarget} transparent animationType="fade" onRequestClose={() => setFolderActionTarget(null)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setFolderActionTarget(null)}>
-          <RNAnimated.View style={[styles.actionSheet, { backgroundColor: colors.surface }]} onStartShouldSetResponder={() => true}>
+      {/* PATCH 2: Folder / Note Action Sheet */}
+      <Modal
+        visible={!!folderAction}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFolderAction(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setFolderAction(null)}>
+          <View
+            style={[styles.actionSheet, { backgroundColor: colors.surface }]}
+            onStartShouldSetResponder={() => true}
+            onTouchEnd={(e) => e.stopPropagation()}
+          >
             <View style={styles.sheetHeader}>
               <View style={[styles.sheetIcon, { backgroundColor: colors.primary + '15' }]}>
                 <FolderOpen size={20} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sheetTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-                  {folderActionTarget?.name}
+                  {folderAction?.name}
                 </Text>
-                <Text style={[styles.sheetSubtitle, { color: colors.textTertiary }]}>Folder Actions</Text>
+                <Text style={[styles.sheetSubtitle, { color: colors.textTertiary }]}>
+                  {folderAction?.type === 'folder' ? 'Folder actions' : 'Note actions'}
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => setFolderActionTarget(null)} style={styles.closeBtn}>
+              <TouchableOpacity onPress={() => setFolderAction(null)} style={styles.closeBtn}>
                 <X size={20} color={colors.textTertiary} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.actionsContainer}>
-              <TouchableOpacity 
-                style={styles.actionItem}
-                onPress={() => {
-                  const t = folderActionTarget;
-                  setFolderActionTarget(null);
-                  if (t) openMovePicker(t);
-                }}
-              >
-                <View style={[styles.actionIcon, { backgroundColor: '#10B98110' }]}>
-                  <FolderInput size={18} color="#10B981" />
-                </View>
-                <Text style={[styles.actionText, { color: colors.textPrimary }]}>Move Folder</Text>
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={() => {
+                setRenameValue(folderAction?.name || '');
+                setRenameVisible(true);
+              }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#3B82F610' }]}>
+                <PenLine size={18} color="#3B82F6" />
+              </View>
+              <Text style={[styles.actionText, { color: colors.textPrimary }]}>Rename</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={() => {
+                if (!folderAction) return;
+                setMoveTarget({ id: folderAction.id, title: folderAction.name, name: folderAction.name });
+                setTargetFolderId(null);
+                setFolderAction(null);
+                setMoveNoteVisible(true);
+              }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#10B98110' }]}>
+                <FolderInput size={18} color="#10B981" />
+              </View>
+              <Text style={[styles.actionText, { color: colors.textPrimary }]}>
+                Move {folderAction?.type === 'folder' ? 'Folder' : 'Note'}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            <TouchableOpacity style={styles.actionItem} onPress={handleDeleteFolderOrNote}>
+              <View style={[styles.actionIcon, { backgroundColor: '#EF444410' }]}>
+                <Trash2 size={18} color="#EF4444" />
+              </View>
+              <Text style={[styles.actionText, { color: '#EF4444' }]}>
+                Delete {folderAction?.type === 'folder' ? 'Folder' : 'Note'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* PATCH 2: Rename modal */}
+      <Modal
+        visible={renameVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRenameVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.createModal, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+              Rename {folderAction?.type === 'folder' ? 'Folder' : 'Note'}
+            </Text>
+            <TextInput
+              style={[styles.modalInput, { backgroundColor: colors.bg, color: colors.textPrimary, borderColor: colors.border }]}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              placeholder="New name…"
+              placeholderTextColor={colors.textTertiary}
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => setRenameVisible(false)} style={styles.modalBtn}>
+                <Text style={{ color: colors.textSecondary }}>Cancel</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.actionItem}
-                onPress={() => {
-                  const t = folderActionTarget;
-                  setFolderActionTarget(null);
-                  if (t) promptRename('node', t.id, t.name);
-                }}
+              <TouchableOpacity
+                onPress={commitRename}
+                style={[styles.modalBtn, styles.modalBtnPrimary, { backgroundColor: colors.primary, opacity: renameSaving ? 0.6 : 1 }]}
+                disabled={renameSaving}
               >
-                <View style={[styles.actionIcon, { backgroundColor: colors.primary + '10' }]}>
-                  <Edit size={18} color={colors.primary} />
-                </View>
-                <Text style={[styles.actionText, { color: colors.textPrimary }]}>Rename Folder</Text>
-              </TouchableOpacity>
-
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-              <TouchableOpacity 
-                style={styles.actionItem}
-                onPress={() => {
-                  const t = folderActionTarget;
-                  setFolderActionTarget(null);
-                  if (t) confirmDelete('node', t.id);
-                }}
-              >
-                <View style={[styles.actionIcon, { backgroundColor: '#EF444410' }]}>
-                  <Trash2 size={18} color="#EF4444" />
-                </View>
-                <Text style={[styles.actionText, { color: '#EF4444' }]}>Delete Folder</Text>
+                {renameSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Save</Text>}
               </TouchableOpacity>
             </View>
-          </RNAnimated.View>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
