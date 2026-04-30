@@ -346,7 +346,7 @@ export default function SyllabusTracker() {
             </View>
         ))}
         {Object.keys(activeSyllabus).map(subj => ({ name: subj, stats: getSubjectStats(subj) })).filter(s => s.stats.percent < 40).length === 0 && (
-           <Text style={[s.weakAction, { color: '#22c55e', marginTop: 8 }]}>No critical weak areas identified! All subjects >40%.</Text>
+           <Text style={[s.weakAction, { color: '#22c55e', marginTop: 8 }]}>No critical weak areas identified! All subjects &gt;40%.</Text>
         )}
       </View>
     </Animated.View>

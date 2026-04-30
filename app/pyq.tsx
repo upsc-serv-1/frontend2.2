@@ -654,6 +654,14 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
     }));
   }, [trendSubjects, years, heatmapData]);
 
+  const trendColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    distributionData.forEach((item, index) => {
+      map[item.name] = TREND_PALETTE[index % TREND_PALETTE.length];
+    });
+    return map;
+  }, [distributionData]);
+
   const focusTrendSeries = useMemo(() => {
     const label =
       focusMicro !== 'All'
@@ -823,7 +831,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
         <h2>${esc(title)}</h2>
         <div class="legend-wrap">${legend}</div>
         <div class="chart-card">
-          <svg viewBox="0 0 ${widthSvg} ${heightSvg}" width="100%" height="${heightSvg}">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${widthSvg} ${heightSvg}" width="100%" height="${heightSvg}">
             <rect x="${leftPad}" y="${topPad}" width="${plotW}" height="${plotH}" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
             ${gridLines}
             ${seriesSvg}

@@ -248,6 +248,39 @@ export default function NotesProScreen() {
     }).start();
   }, [activeSubjectId]);
 
+  const descendantIds = useMemo(() => {
+    const ids = new Set<string>();
+    const startId = moveTarget?.id;
+    if (!startId || !vaultData?.allFolders) return ids;
+    const collectChildren = (parentId: string) => {
+      Object.values(vaultData.allFolders || {}).forEach((folder: any) => {
+        if ((folder?.parentId ?? folder?.parent_id) === parentId && folder?.id) {
+          ids.add(folder.id);
+          collectChildren(folder.id);
+        }
+      });
+    };
+    collectChildren(startId);
+    return ids;
+  }, [moveTarget, vaultData?.allFolders]);
+
+  const destinationFolders = useMemo(() => {
+    const allFolders = vaultData?.allFolders || {};
+    const rows: Array<{ id: string; name: string; depth: number; parentId: string | null }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      const children = Object.values(allFolders)
+        .filter((folder: any) => (folder?.parentId ?? folder?.parent_id ?? null) === parentId)
+        .sort((a: any, b: any) => String(a?.name ?? a?.title ?? '').localeCompare(String(b?.name ?? b?.title ?? '')));
+      children.forEach((folder: any) => {
+        if (!folder?.id || folder.id === moveTarget?.id || descendantIds.has(folder.id)) return;
+        rows.push({ id: folder.id, name: folder.name ?? folder.title ?? 'Untitled', depth, parentId: (folder.parentId ?? folder.parent_id ?? null) });
+        walk(folder.id, depth + 1);
+      });
+    };
+    walk(null, 0);
+    return rows;
+  }, [vaultData?.allFolders, moveTarget, descendantIds]);
+
   useFocusEffect(
     React.useCallback(() => {
       refresh();
@@ -541,20 +574,7 @@ export default function NotesProScreen() {
       <View style={[styles.treeRow, { paddingLeft: 40 }]}>
         <TouchableOpacity 
           onPress={() => router.push({ pathname: '/notes', params: { sid: topic.id } })}
-          onLongPress={() => {
-            Vibration.vibrate(50);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            Alert.alert(
-              `"${topic.name}"`,
-              'What would you like to do?',
-              [
-                { text: "Move", onPress: () => openMovePicker(topic) },
-                { text: "Rename", onPress: () => promptRename('node', topic.id, topic.name) },
-                { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', topic.id) },
-                { text: "Cancel", style: "cancel" }
-              ]
-            );
-          }}
+          onLongPress={() => openFolderActions(topic)}
           activeOpacity={0.7}
           style={{ flex: 1 }}
         >
@@ -576,20 +596,7 @@ export default function NotesProScreen() {
       <View style={[styles.treeRow, { paddingLeft: 20 }]}>
         <TouchableOpacity 
           onPress={() => router.push({ pathname: '/notes', params: { sid: section.id } })}
-          onLongPress={() => {
-            Vibration.vibrate(50);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            Alert.alert(
-              `"${section.name}"`,
-              'What would you like to do?',
-              [
-                { text: "Move", onPress: () => openMovePicker(section) },
-                { text: "Rename", onPress: () => promptRename('node', section.id, section.name) },
-                { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', section.id) },
-                { text: "Cancel", style: "cancel" }
-              ]
-            );
-          }}
+          onLongPress={() => openFolderActions(section)}
           activeOpacity={0.7}
           style={{ flex: 1 }}
         >
@@ -610,19 +617,7 @@ export default function NotesProScreen() {
     return (
       <TouchableOpacity
         onPress={() => router.push({ pathname: '/notes', params: { sid: subject.id } })}
-        onLongPress={() => {
-          Vibration.vibrate(50);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          Alert.alert(
-            `"${subject.name}"`,
-            'What would you like to do?',
-            [
-              { text: "Rename", onPress: () => promptRename('node', subject.id, subject.name) },
-              { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', subject.id) },
-              { text: "Cancel", style: "cancel" }
-            ]
-          );
-        }}
+        onLongPress={() => openFolderActions(subject)}
         activeOpacity={0.8}
         style={{ width: COLUMN_WIDTH }}
       >
@@ -1186,8 +1181,9 @@ export default function NotesProScreen() {
               <TouchableOpacity 
                 style={styles.actionItem}
                 onPress={() => {
+                  const t = folderActionTarget;
                   setFolderActionTarget(null);
-                  Alert.alert("Coming Soon", "Rename feature is being optimized.");
+                  if (t) promptRename('node', t.id, t.name);
                 }}
               >
                 <View style={[styles.actionIcon, { backgroundColor: colors.primary + '10' }]}>
@@ -1201,8 +1197,9 @@ export default function NotesProScreen() {
               <TouchableOpacity 
                 style={styles.actionItem}
                 onPress={() => {
+                  const t = folderActionTarget;
                   setFolderActionTarget(null);
-                  Alert.alert("Coming Soon", "Safe-delete is being optimized.");
+                  if (t) confirmDelete('node', t.id);
                 }}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#EF444410' }]}>
