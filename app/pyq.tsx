@@ -923,9 +923,10 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                   }
                 }
                 return `<td style="padding: 1px; border: none; width: 44px; height: 32px;">
-                  <div style="background-color: ${bg}; color: ${tc}; width: 44px; height: 32px; line-height: 32px; text-align: center; border-radius: 5px; font-weight: 800; font-size: 11px; -webkit-print-color-adjust: exact;">
-                    ${count || ''}
-                  </div>
+                  <svg width="44" height="32" viewBox="0 0 44 32" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="44" height="32" rx="5" fill="${bg}" />
+                    <text x="22" y="20.5" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="${tc}">${count || ''}</text>
+                  </svg>
                 </td>`;
               }).join('')}
             </tr>

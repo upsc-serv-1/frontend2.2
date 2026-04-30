@@ -254,7 +254,8 @@ export default function NotesProScreen() {
     if (!startId || !vaultData?.allFolders) return ids;
     const collectChildren = (parentId: string) => {
       Object.values(vaultData.allFolders || {}).forEach((folder: any) => {
-        if ((folder?.parentId ?? folder?.parent_id) === parentId && folder?.id) {
+        const pid = folder?.parentId ?? folder?.parent_id ?? null;
+        if (pid === parentId && folder?.id) {
           ids.add(folder.id);
           collectChildren(folder.id);
         }
@@ -269,11 +270,20 @@ export default function NotesProScreen() {
     const rows: Array<{ id: string; name: string; depth: number; parentId: string | null }> = [];
     const walk = (parentId: string | null, depth: number) => {
       const children = Object.values(allFolders)
-        .filter((folder: any) => (folder?.parentId ?? folder?.parent_id ?? null) === parentId)
+        .filter((folder: any) => {
+          const pid = folder?.parentId ?? folder?.parent_id ?? null;
+          return pid === parentId;
+        })
         .sort((a: any, b: any) => String(a?.name ?? a?.title ?? '').localeCompare(String(b?.name ?? b?.title ?? '')));
+      
       children.forEach((folder: any) => {
         if (!folder?.id || folder.id === moveTarget?.id || descendantIds.has(folder.id)) return;
-        rows.push({ id: folder.id, name: folder.name ?? folder.title ?? 'Untitled', depth, parentId: (folder.parentId ?? folder.parent_id ?? null) });
+        rows.push({ 
+          id: folder.id, 
+          name: folder.name ?? folder.title ?? 'Untitled', 
+          depth, 
+          parentId: (folder.parentId ?? folder.parent_id ?? null) 
+        });
         walk(folder.id, depth + 1);
       });
     };
@@ -1006,15 +1016,11 @@ export default function NotesProScreen() {
           setTargetFolderId(null);
         }}
       >
-        <View style={styles.modalOverlay}>
-          <Pressable 
-            style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]} 
-            onPress={() => {
-              setMoveNoteVisible(false);
-              setTargetFolderId(null);
-            }} 
-          />
-          <Pressable style={[styles.actionSheet, { backgroundColor: colors.surface, width: '90%', maxHeight: '85%' }]} onPress={() => {}}>
+        <Pressable style={styles.modalOverlay} onPress={() => {
+          setMoveNoteVisible(false);
+          setTargetFolderId(null);
+        }}>
+          <Pressable style={[styles.actionSheet, { backgroundColor: colors.surface, width: '90%', maxHeight: '80%' }]} onPress={() => {}}>
             <View style={styles.sheetHeader}>
               <View style={[styles.sheetIcon, { backgroundColor: '#10B98115' }]}>
                 <FolderInput size={20} color="#10B981" />
