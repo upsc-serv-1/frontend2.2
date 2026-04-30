@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { applySM2 } from './sm2';
+import { FlashcardLocalCache } from './FlashcardLocalCache';
 
 export type CardSource =
   | { kind: 'question'; question_id: string; options?: Record<string, string> }
@@ -302,8 +303,27 @@ export class FlashcardSvc {
   }
 
   static async deleteCardForUser(userId: string, cardId: string) {
-    const { error } = await supabase.from('user_cards').delete().eq('user_id', userId).eq('card_id', cardId);
-    if (error) throw error;
+    console.log(`[FlashcardSvc] Attempting to delete user_card: userId=${userId}, cardId=${cardId}`);
+    
+    const { error, count } = await supabase
+      .from('user_cards')
+      .delete({ count: 'exact' })
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
+      
+    if (error) {
+      console.error('[FlashcardSvc] Delete error:', error);
+      throw error;
+    }
+    
+    console.log(`[FlashcardSvc] Delete successful. Rows affected: ${count}`);
+    
+    // Also clear from local cache to prevent "ghost" restores
+    try {
+      await FlashcardLocalCache.clearCardState(userId, cardId);
+    } catch (e) {
+      console.warn('[FlashcardSvc] Failed to clear local cache for deleted card:', e);
+    }
   }
 
   // ============ REVIEW (SM-2 + bucket updates) ============

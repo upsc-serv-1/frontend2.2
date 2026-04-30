@@ -41,6 +41,10 @@ export const FlashcardLocalCache = {
     return raw ? JSON.parse(raw) : null;
   },
 
+  async clearCardState(userId: string, cardId: string) {
+    await AsyncStorage.removeItem(STATE_KEY(userId, cardId));
+  },
+
   async enqueueReview(userId: string, payload: { cardId: string; quality: number; ts: string }) {
     const raw = await AsyncStorage.getItem(QUEUE_KEY(userId));
     const list = raw ? JSON.parse(raw) : [];
