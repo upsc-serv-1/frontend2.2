@@ -138,8 +138,11 @@ export default function MicrotopicModal() {
       }
 
       setStats({
-        due:      activeCards.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now).length,
-        new:      activeCards.filter(c => c.learning_status === 'not_studied').length,
+        due:      activeCards.filter(c => {
+          const isDue = !c.next_review || new Date(c.next_review).getTime() <= now;
+          return isDue && c.status !== 'frozen';
+        }).length,
+        new:      activeCards.filter(c => !c.learning_status || c.learning_status === 'not_studied').length,
         learning: activeCards.filter(c => c.learning_status === 'learning' || c.learning_status === 'review').length,
         mastered: activeCards.filter(c => c.learning_status === 'mastered').length,
       });
@@ -157,22 +160,22 @@ export default function MicrotopicModal() {
   };
 
   const filteredAndSortedCards = useMemo(() => {
-    let result = [...cards];
+    let result = cards.filter(c => c.status !== 'deleted');
     
     // Filter
-    if (filterBy === 'all') result = result.filter(c => c.status === 'active');
-    else if (filterBy === 'frozen') result = result.filter(c => c.status === 'frozen');
-    else if (filterBy === 'new') result = result.filter(c => c.status === 'active' && c.learning_status === 'not_studied');
-    else if (filterBy === 'mastered') result = result.filter(c => c.status === 'active' && c.learning_status === 'mastered');
-    else if (filterBy === 'learning') result = result.filter(c => c.status === 'active' && (c.learning_status === 'learning' || c.learning_status === 'review'));
-    else if (filterBy === 'due') {
+    if (filterBy === 'all') {
+      // Show everything not deleted
+    } else if (filterBy === 'due') {
       const now = Date.now();
-      result = result.filter(c => 
-        c.status === 'active' && 
-        c.learning_status !== 'not_studied' && // EXCLUDE NEW CARDS
-        c.next_review && 
-        new Date(c.next_review).getTime() <= now
-      );
+      result = result.filter(c => (!c.next_review || new Date(c.next_review).getTime() <= now) && c.status !== 'frozen');
+    } else if (filterBy === 'new') {
+      result = result.filter(c => !c.learning_status || c.learning_status === 'not_studied');
+    } else if (filterBy === 'learning') {
+      result = result.filter(c => c.learning_status === 'learning' || c.learning_status === 'review');
+    } else if (filterBy === 'mastered') {
+      result = result.filter(c => c.learning_status === 'mastered');
+    } else if (filterBy === 'frozen') {
+      result = result.filter(c => c.status === 'frozen');
     }
 
     // Sort
@@ -183,8 +186,6 @@ export default function MicrotopicModal() {
         return ad - bd;
       }
       if (sortBy === 'newest') return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      if (sortBy === 'oldest') return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
-      if (sortBy === 'az') return a.front_text.localeCompare(b.front_text);
       return 0;
     });
 
