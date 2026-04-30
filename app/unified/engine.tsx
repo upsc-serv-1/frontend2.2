@@ -352,6 +352,7 @@ export default function UnifiedQuizEngine() {
   const [showSaveNameModal, setShowSaveNameModal] = useState(false);
   const [isSavingAttempt, setIsSavingAttempt] = useState(false);
   const [savingFlashcard, setSavingFlashcard] = useState<Record<string, boolean>>({});
+  const [inFlashcardDeck, setInFlashcardDeck] = useState<Record<string, boolean>>({});
   const [lastNoteTap, setLastNoteTap] = useState(0);
   const [fontSize, setFontSize] = useState(16);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
@@ -560,6 +561,19 @@ export default function UnifiedQuizEngine() {
       if (session?.user?.id && finalQs.length > 0) {
         const shouldLoadAnswers = arenaMode === 'learning' && params.testId && !params.testId.startsWith('custom_');
         store.loadStates(mergedQs.map(q => q.id), !!shouldLoadAnswers);
+
+        // Fetch which questions are already in flashcards to show "bright" icon
+        supabase.from('user_cards')
+          .select('question_id')
+          .eq('user_id', session.user.id)
+          .in('question_id', finalQs.map(q => q.id))
+          .then(({ data }) => {
+            if (data) {
+              const map: Record<string, boolean> = {};
+              data.forEach(row => { map[row.question_id] = true; });
+              setInFlashcardDeck(map);
+            }
+          });
       }
     };
 
@@ -1062,6 +1076,11 @@ export default function UnifiedQuizEngine() {
 
   const handleAddToFlashcards = async (q: Question) => {
     if (!session?.user?.id) return;
+    if (inFlashcardDeck[q.id]) {
+      Alert.alert('Info', 'This question is already in your flashcard deck.');
+      return;
+    }
+    
     setSavingFlashcard(prev => ({ ...prev, [q.id]: true }));
     try {
       const qAny = q as any;
@@ -1070,6 +1089,7 @@ export default function UnifiedQuizEngine() {
         institute: qAny.institute || qAny.tests?.institute || qAny.provider,
         exam_year: qAny.exam_year || qAny.year,
       });
+      setInFlashcardDeck(prev => ({ ...prev, [q.id]: true }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('Added', 'Flashcard added to your deck.');
     } catch (err: any) {
@@ -1540,7 +1560,11 @@ export default function UnifiedQuizEngine() {
                {savingFlashcard[item.id] ? (
                  <ActivityIndicator size="small" color={colors.primary} />
                ) : (
-                 <Zap size={20} color={isZenMode ? '#43342240' : colors.textTertiary} />
+                 <Zap 
+                   size={20} 
+                   color={inFlashcardDeck[item.id] ? colors.primary : (isZenMode ? '#43342240' : colors.textTertiary)} 
+                   fill={inFlashcardDeck[item.id] ? colors.primary : 'transparent'}
+                 />
                )}
             </TouchableOpacity>
           </View>
