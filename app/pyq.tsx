@@ -139,34 +139,42 @@ function StickyHeatmapTable({
                   {rows.map((row) => (
                     <View key={`data-${row.key}`} style={[styles.heatmapDataRow, { borderBottomColor: colors.border + '55' }]}> 
                       {years.map((year) => {
-                        const count = row.byYear[year] || 0;
                         const ratio = count / maxOpacityDivisor;
-                        let bgColor = 'transparent';
+                        let bgColor = colors.surfaceStrong;
                         let textColor = colors.textTertiary;
                         let opacity = 1;
 
                         if (count > 0) {
                           textColor = '#ffffff';
-                          if (ratio >= 1.5) bgColor = '#1e3a8a';
-                          else if (ratio >= 1.0) bgColor = '#1d4ed8';
-                          else if (ratio >= 0.7) bgColor = '#2563eb';
-                          else if (ratio >= 0.4) bgColor = '#60a5fa';
+                          if (ratio >= 1.5) bgColor = '#312e81'; // Indigo 900
+                          else if (ratio >= 1.0) bgColor = '#4338ca'; // Indigo 700
+                          else if (ratio >= 0.7) bgColor = '#4f46e5'; // Indigo 600
+                          else if (ratio >= 0.4) bgColor = '#818cf8'; // Indigo 400
                           else {
-                            bgColor = '#bfdbfe';
-                            textColor = '#1e40af';
+                            bgColor = '#c7d2fe'; // Indigo 200
+                            textColor = '#3730a3';
                           }
                         } else {
-                          opacity = 0.06;
-                          bgColor = baseColor;
+                          opacity = 0.4;
                         }
 
                         return (
                           <TouchableOpacity
                             key={`${row.key}-${year}`}
-                            style={[styles.heatmapDataCell, { backgroundColor: bgColor, opacity, borderRightColor: colors.border + '45' }]}
+                            style={[
+                              styles.heatmapDataCell, 
+                              { 
+                                backgroundColor: bgColor, 
+                                opacity,
+                                borderRadius: 6,
+                                margin: 1,
+                                width: HEATMAP_CELL_WIDTH - 2,
+                                height: HEATMAP_ROW_HEIGHT - 2,
+                              }
+                            ]}
                             onPress={() => onCellPress?.(row.label, year)}
                           >
-                            <Text style={[styles.heatCellText, { color: textColor }]}>{count || ''}</Text>
+                            <Text style={[styles.heatCellText, { color: textColor, fontSize: 10, fontWeight: '800' }]}>{count || ''}</Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -865,21 +873,20 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
           ${rows.map(row => `
             <tr>
               <td>${esc(row.label)}</td>
-              ${years.map(year => {
                 const count = row.byYear[year] || 0;
                 const ratio = count / divisor;
-                let bg = 'rgba(241, 245, 249, 0.5)';
-                let tc = '#64748b';
+                let bg = '#f8fafc';
+                let tc = '#94a3b8';
                 
                 if (count > 0) {
                   tc = '#ffffff';
-                  if (ratio >= 1.5) bg = '#1e3a8a';
-                  else if (ratio >= 1.0) bg = '#1d4ed8';
-                  else if (ratio >= 0.7) bg = '#2563eb';
-                  else if (ratio >= 0.4) bg = '#60a5fa';
-                  else { bg = '#bfdbfe'; tc = '#1e40af'; }
+                  if (ratio >= 1.5) bg = '#312e81';
+                  else if (ratio >= 1.0) bg = '#4338ca';
+                  else if (ratio >= 0.7) bg = '#4f46e5';
+                  else if (ratio >= 0.4) bg = '#818cf8';
+                  else { bg = '#c7d2fe'; tc = '#3730a3'; }
                 }
-                return `<td style="background: ${bg} !important; color: ${tc} !important; font-weight:700; text-align:center;">${count || ''}</td>`;
+                return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
               }).join('')}
             </tr>
           `).join('')}
@@ -1536,7 +1543,6 @@ const styles = StyleSheet.create({
   heatmapYearHeaderCell: {
     width: HEATMAP_CELL_WIDTH,
     height: HEATMAP_ROW_HEIGHT,
-    borderRightWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1549,16 +1555,14 @@ const styles = StyleSheet.create({
     height: HEATMAP_ROW_HEIGHT,
     paddingHorizontal: 10,
     justifyContent: 'center',
-    borderBottomWidth: 1,
   },
   heatmapStickyLabelText: { fontSize: 11, fontWeight: '700' },
-  heatmapDataRow: { flexDirection: 'row', height: HEATMAP_ROW_HEIGHT, borderBottomWidth: 1 },
+  heatmapDataRow: { flexDirection: 'row', height: HEATMAP_ROW_HEIGHT },
   heatmapDataCell: {
     width: HEATMAP_CELL_WIDTH,
     height: HEATMAP_ROW_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRightWidth: 1,
   },
   heatCellText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   helperText: { fontSize: 12, marginBottom: 16, lineHeight: 18 },
