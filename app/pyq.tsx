@@ -1060,7 +1060,12 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
         console.log(`[PDFExport] Printing to file...`);
         const { uri } = await Print.printToFileAsync({ html });
         console.log(`[PDFExport] File printed to: ${uri}. Opening share menu...`);
-        await Sharing.shareAsync(uri);
+        setExporting(false); 
+        await Sharing.shareAsync(uri, { 
+          mimeType: 'application/pdf', 
+          dialogTitle: 'PYQ Analysis Report',
+          UTI: 'com.adobe.pdf' 
+        });
       } else {
         console.log(`[PDFExport] Printing directly...`);
         await Print.printAsync({ html });
