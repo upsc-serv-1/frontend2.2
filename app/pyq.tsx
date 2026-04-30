@@ -147,13 +147,13 @@ function StickyHeatmapTable({
 
                         if (count > 0) {
                           textColor = '#ffffff';
-                          if (ratio >= 1.4) bgColor = '#312e81'; // 20+ if divisor is 14
-                          else if (ratio >= 0.8) bgColor = '#4338ca'; // 12+ if divisor is 14
-                          else if (ratio >= 0.5) bgColor = '#4f46e5'; // 7+ if divisor is 14
-                          else if (ratio >= 0.2) bgColor = '#818cf8'; // 3+ if divisor is 14
+                          if (count >= 18) bgColor = '#1e1b4b'; // Deep Navy
+                          else if (count >= 12) bgColor = '#7c3aed'; // Violet 600
+                          else if (count >= 7) bgColor = '#4f46e5'; // Indigo 600
+                          else if (count >= 3) bgColor = '#60a5fa'; // Blue 400
                           else {
-                            bgColor = '#c7d2fe'; // 1-2 questions
-                            textColor = '#3730a3';
+                            bgColor = '#dbeafe'; // Blue 100
+                            textColor = '#1e40af';
                           }
                         } else {
                           opacity = 0.4;
@@ -882,11 +882,11 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                 
                 if (count > 0) {
                   tc = '#ffffff';
-                  if (ratio >= 1.4) bg = '#312e81';
-                  else if (ratio >= 0.8) bg = '#4338ca';
-                  else if (ratio >= 0.5) bg = '#4f46e5';
-                  else if (ratio >= 0.2) bg = '#818cf8';
-                  else { bg = '#c7d2fe'; tc = '#3730a3'; }
+                if (count >= 18) bg = '#1e1b4b';
+                else if (count >= 12) bg = '#7c3aed';
+                else if (count >= 7) bg = '#4f46e5';
+                else if (count >= 3) bg = '#60a5fa';
+                else { bg = '#dbeafe'; tc = '#1e40af'; }
                 }
                 return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
               }).join('')}
