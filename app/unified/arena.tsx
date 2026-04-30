@@ -46,7 +46,11 @@ const { width } = Dimensions.get('window');
 
 const FilterRow = ({ title, items, selected, onSelect, multi = false, visible = true, showSelectAll = true, allowAll = true }: any) => {
   const { colors } = useTheme();
-  if (!visible || items.length === 0) return null;
+  const normalizedItems: string[] = Array.isArray(items) ? items : [];
+  if (!visible) return null;
+
+  const hasRenderableOptions = allowAll || normalizedItems.length > 0 || (multi && showSelectAll && normalizedItems.length > 1);
+  if (!hasRenderableOptions) return null;
 
   const isSelected = (item: string) => {
     if (multi) return Array.isArray(selected) && selected.includes(item);
@@ -59,7 +63,7 @@ const FilterRow = ({ title, items, selected, onSelect, multi = false, visible = 
       return;
     }
     if (item === 'SELECT_ALL') {
-      onSelect([...items]);
+      onSelect([...normalizedItems]);
       return;
     }
     if (multi) {
@@ -71,7 +75,7 @@ const FilterRow = ({ title, items, selected, onSelect, multi = false, visible = 
     }
   };
 
-  const isEverythingSelected = multi && Array.isArray(selected) && selected.length === items.length && items.length > 0;
+  const isEverythingSelected = multi && Array.isArray(selected) && selected.length === normalizedItems.length && normalizedItems.length > 0;
 
   const isAll = !selected || (Array.isArray(selected) && selected.length === 0) || selected === 'All';
 
@@ -94,7 +98,7 @@ const FilterRow = ({ title, items, selected, onSelect, multi = false, visible = 
           </TouchableOpacity>
         )}
 
-        {multi && items.length > 1 && showSelectAll && (
+        {multi && normalizedItems.length > 1 && showSelectAll && (
           <TouchableOpacity
             style={[
               styles.chip,
@@ -108,7 +112,7 @@ const FilterRow = ({ title, items, selected, onSelect, multi = false, visible = 
             </Text>
           </TouchableOpacity>
         )}
-        {items.map((item: string) => (
+        {normalizedItems.map((item: string) => (
           <TouchableOpacity
             key={item}
             style={[
@@ -513,6 +517,40 @@ export default function UnifiedArenaSetup() {
           });
         }
       });
+
+      // Fallback: ensure Subject filter always has data even if chunked metadata is sparse
+      const existingSubjects = new Set(flattened.map((m: any) => m.subject).filter(Boolean));
+      if (existingSubjects.size === 0) {
+        const { data: subjectRows, error: subjectErr } = await supabase
+          .from('questions')
+          .select('subject')
+          .not('subject', 'is', null)
+          .limit(2000);
+
+        if (!subjectErr && subjectRows) {
+          subjectRows.forEach((row: any) => {
+            if (row.subject && !existingSubjects.has(row.subject)) {
+              existingSubjects.add(row.subject);
+              flattened.push({
+                subject: row.subject,
+                section_group: null,
+                micro_topic: null,
+                test_id: null,
+                institute: null,
+                program_name: null,
+                series: null,
+                title: null,
+                exam_year: null,
+                launch_year: null,
+                is_pyq: null,
+                is_upsc_cse: null,
+                is_allied: null,
+                is_others: null,
+              });
+            }
+          });
+        }
+      }
       
       setMetadata(flattened);
 
