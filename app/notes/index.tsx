@@ -122,8 +122,7 @@ export default function NotesProScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [moveNoteVisible, setMoveNoteVisible] = useState(false);
   const [moveTarget, setMoveTarget] = useState<any>(null);
-  const [targetSubject, setTargetSubject] = useState<string | null>(null);
-  const [targetSection, setTargetSection] = useState<string>('');
+  const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
   const [isMoving, setIsMoving] = useState(false);
   const [moveTargetType, setMoveTargetType] = useState<'note' | 'folder' | null>(null);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
@@ -277,6 +276,12 @@ export default function NotesProScreen() {
     setExpandedMicroTopics(prev => ({ ...prev, [microName]: !prev[microName] }));
   };
 
+  const openMovePicker = (target: any) => {
+    setMoveTarget(target);
+    setTargetFolderId(null);
+    setMoveNoteVisible(true);
+  };
+
   const onNoteLongPress = (note: PilotNoteNode) => {
     Vibration.vibrate(50); // Added distinct vibration pulse
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -339,20 +344,28 @@ export default function NotesProScreen() {
 
   const handleMoveAction = async (targetId: string, destinationId: string | null) => {
     if (isMoving) return;
-    
+
     // 🛡️ Safety: can't move a folder into itself
     if (targetId === destinationId) {
       Alert.alert('Invalid', 'Cannot move a folder into itself.');
       return;
     }
 
+    const nextParentId = destinationId === 'root' ? null : destinationId;
+    const currentParentId = moveTarget?.parent_id ?? moveTarget?.parentId ?? null;
+
+    if (currentParentId === nextParentId) {
+      Alert.alert('No change', 'This item is already in the selected destination.');
+      return;
+    }
+
     setIsMoving(true);
-    console.log(`[NotesMove] Moving node ${targetId} to parent ${destinationId}`);
-    
+    console.log(`[NotesMove] Moving node ${targetId} to parent ${nextParentId}`);
+
     try {
       const { error } = await supabase
         .from('user_note_nodes')
-        .update({ parent_id: destinationId === 'root' ? null : destinationId })
+        .update({ parent_id: nextParentId })
         .eq('id', targetId);
 
       if (error) {
@@ -367,7 +380,7 @@ export default function NotesProScreen() {
 
       setMoveNoteVisible(false);
       setMoveTarget(null);
-      setTargetSubject(null);
+      setTargetFolderId(null);
       setActionNote(null);
       refresh();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -421,11 +434,10 @@ export default function NotesProScreen() {
       .onEnd((e) => {
         'worklet';
         isPressed.value = false;
-        
-        // Drop on empty space → show picker
-        runOnJS(setMoveTarget)(note);
-        runOnJS(setTargetSubject)(null);
-        runOnJS(setMoveNoteVisible)(true);
+
+        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
+          runOnJS(openMovePicker)(note);
+        }
 
         offset.value = { x: 0, y: 0 };
       });
@@ -499,25 +511,9 @@ export default function NotesProScreen() {
       .onEnd((e) => {
         'worklet';
         isPressed.value = false;
-        
-        const x = e.absoluteX;
-        const y = e.absoluteY;
-        let hitFolderId: string | null = null;
-        const layouts = folderLayouts.value;
-        for (const [id, box] of Object.entries(layouts)) {
-          if (id === topic.id) continue;
-          if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-            hitFolderId = id;
-            break;
-          }
-        }
 
-        if (hitFolderId) {
-          runOnJS(moveItemToFolder)(topic.id, hitFolderId);
-        } else if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(setMoveTarget)(topic);
-          runOnJS(setTargetSubject)(null);
-          runOnJS(setMoveNoteVisible)(true);
+        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
+          runOnJS(openMovePicker)(topic);
         }
         offset.value = { x: 0, y: 0 };
       });
@@ -535,7 +531,7 @@ export default function NotesProScreen() {
     return (
       <GestureDetector gesture={panGesture}>
         <ReAnimated.View 
-          onLayout={(e) => onFolderLayout(topic.id, e.nativeEvent)}
+          onLayout={(e) => onFolderLayout(topic.id, e)}
           style={[styles.treeRow, { paddingLeft: 40 }]}
         >
           <TouchableOpacity 
@@ -543,11 +539,7 @@ export default function NotesProScreen() {
             onLongPress={() => {
               Vibration.vibrate(50);
               Alert.alert("Folder Actions", `Manage "${topic.name}"`, [
-                { text: "Move Folder", onPress: () => { 
-                  setMoveTarget(topic); 
-                  setTargetSubject(null); 
-                  setMoveNoteVisible(true); 
-                } },
+                { text: "Move Folder", onPress: () => openMovePicker(topic) },
                 { text: "Rename", onPress: () => Alert.alert("Coming Soon", "Rename feature is being optimized.") },
                 { text: "Delete Folder", style: "destructive", onPress: () => Alert.alert("Coming Soon", "Safe-delete is being optimized.") },
                 { text: "Cancel", style: "cancel" }
@@ -589,25 +581,9 @@ export default function NotesProScreen() {
       .onEnd((e) => {
         'worklet';
         isPressed.value = false;
-        
-        const x = e.absoluteX;
-        const y = e.absoluteY;
-        let hitFolderId: string | null = null;
-        const layouts = folderLayouts.value;
-        for (const [id, box] of Object.entries(layouts)) {
-          if (id === section.id) continue;
-          if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-            hitFolderId = id;
-            break;
-          }
-        }
 
-        if (hitFolderId) {
-          runOnJS(moveItemToFolder)(section.id, hitFolderId);
-        } else if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(setMoveTarget)(section);
-          runOnJS(setTargetSubject)(null);
-          runOnJS(setMoveNoteVisible)(true);
+        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
+          runOnJS(openMovePicker)(section);
         }
         offset.value = { x: 0, y: 0 };
       });
@@ -625,7 +601,7 @@ export default function NotesProScreen() {
     return (
       <GestureDetector gesture={panGesture}>
         <ReAnimated.View 
-          onLayout={(e) => onFolderLayout(section.id, e.nativeEvent)}
+          onLayout={(e) => onFolderLayout(section.id, e)}
           style={[styles.treeRow, { paddingLeft: 20 }]}
         >
           <TouchableOpacity 
@@ -633,11 +609,7 @@ export default function NotesProScreen() {
             onLongPress={() => {
               Vibration.vibrate(50);
               Alert.alert("Folder Actions", `Manage "${section.name}"`, [
-                { text: "Move Folder", onPress: () => { 
-                  setMoveTarget(section); 
-                  setTargetSubject(null); 
-                  setMoveNoteVisible(true); 
-                } },
+                { text: "Move Folder", onPress: () => openMovePicker(section) },
                 { text: "Rename", onPress: () => Alert.alert("Coming Soon", "Rename feature is being optimized.") },
                 { text: "Delete Folder", style: "destructive", onPress: () => Alert.alert("Coming Soon", "Safe-delete is being optimized.") },
                 { text: "Cancel", style: "cancel" }
@@ -679,25 +651,9 @@ export default function NotesProScreen() {
       .onEnd((e) => {
         'worklet';
         isPressed.value = false;
-        
-        const x = e.absoluteX;
-        const y = e.absoluteY;
-        let hitFolderId: string | null = null;
-        const layouts = folderLayouts.value;
-        for (const [id, box] of Object.entries(layouts)) {
-          if (id === subject.id) continue;
-          if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-            hitFolderId = id;
-            break;
-          }
-        }
 
-        if (hitFolderId) {
-          runOnJS(moveItemToFolder)(subject.id, hitFolderId);
-        } else if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
-          runOnJS(setMoveTarget)(subject);
-          runOnJS(setTargetSubject)(null);
-          runOnJS(setMoveNoteVisible)(true);
+        if (Math.abs(e.translationX) > 20 || Math.abs(e.translationY) > 20) {
+          runOnJS(openMovePicker)(subject);
         }
         offset.value = { x: 0, y: 0 };
       });
@@ -716,7 +672,7 @@ export default function NotesProScreen() {
     return (
       <GestureDetector gesture={panGesture}>
         <ReAnimated.View 
-          onLayout={(e) => onFolderLayout(subject.id, e.nativeEvent)}
+          onLayout={(e) => onFolderLayout(subject.id, e)}
           style={{ width: COLUMN_WIDTH }}
         >
           <TouchableOpacity
@@ -724,11 +680,7 @@ export default function NotesProScreen() {
             onLongPress={() => {
               Vibration.vibrate(50);
               Alert.alert("Notebook Actions", `Manage "${subject.name}"`, [
-                { text: "Move Folder", onPress: () => { 
-                  setMoveTarget(subject); 
-                  setTargetSubject(null); 
-                  setMoveNoteVisible(true); 
-                } },
+                { text: "Move Folder", onPress: () => openMovePicker(subject) },
                 { text: "Rename", onPress: () => Alert.alert("Coming Soon", "Rename feature is being optimized.") },
                 { text: "Delete Folder", style: "destructive", onPress: () => Alert.alert("Coming Soon", "Safe-delete is being optimized.") },
                 { text: "Cancel", style: "cancel" }
@@ -1122,10 +1074,8 @@ export default function NotesProScreen() {
               <TouchableOpacity 
                 style={styles.actionItem}
                 onPress={() => {
-                  setMoveTarget(actionNote);
-                  setTargetSubject(null);
+                  openMovePicker(actionNote);
                   setActionNote(null);
-                  setMoveNoteVisible(true);
                 }}
               >
                 <View style={[styles.actionIcon, { backgroundColor: '#10B98110' }]}>
@@ -1153,12 +1103,18 @@ export default function NotesProScreen() {
         visible={moveNoteVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setMoveNoteVisible(false)}
+        onRequestClose={() => {
+          setMoveNoteVisible(false);
+          setTargetFolderId(null);
+        }}
       >
         <View style={styles.modalOverlay}>
           <Pressable 
             style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.4)' }]} 
-            onPress={() => setMoveNoteVisible(false)} 
+            onPress={() => {
+              setMoveNoteVisible(false);
+              setTargetFolderId(null);
+            }} 
           />
           <View style={[styles.actionSheet, { backgroundColor: colors.surface, width: '90%', maxHeight: '85%' }]}>
             <View style={styles.sheetHeader}>
@@ -1169,7 +1125,10 @@ export default function NotesProScreen() {
                 <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>Move "{moveTarget?.title || moveTarget?.name || 'Item'}"</Text>
                 <Text style={[styles.sheetSubtitle, { color: colors.textTertiary }]}>Select destination folder</Text>
               </View>
-              <TouchableOpacity onPress={() => setMoveNoteVisible(false)} style={styles.closeBtn}>
+              <TouchableOpacity onPress={() => {
+                setMoveNoteVisible(false);
+                setTargetFolderId(null);
+              }} style={styles.closeBtn}>
                 <X size={20} color={colors.textTertiary} />
               </TouchableOpacity>
             </View>
@@ -1180,17 +1139,17 @@ export default function NotesProScreen() {
                 {/* Root Option */}
                 <TouchableOpacity 
                   style={[styles.moveItem, { 
-                    borderColor: targetSubject === 'root' ? colors.primary : colors.border,
-                    backgroundColor: targetSubject === 'root' ? colors.primary + '15' : 'transparent',
-                    borderWidth: targetSubject === 'root' ? 2 : 1,
+                    borderColor: targetFolderId === 'root' ? colors.primary : colors.border,
+                    backgroundColor: targetFolderId === 'root' ? colors.primary + '15' : 'transparent',
+                    borderWidth: targetFolderId === 'root' ? 2 : 1,
                   }]}
-                  onPress={() => { setTargetSubject('root'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                  onPress={() => { setTargetFolderId('root'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                 >
-                  <View style={[styles.moveItemIcon, { backgroundColor: (targetSubject === 'root' ? colors.primary : colors.textTertiary) + '15' }]}>
-                    <Layout size={16} color={targetSubject === 'root' ? colors.primary : colors.textTertiary} />
+                  <View style={[styles.moveItemIcon, { backgroundColor: (targetFolderId === 'root' ? colors.primary : colors.textTertiary) + '15' }]}>
+                    <Layout size={16} color={targetFolderId === 'root' ? colors.primary : colors.textTertiary} />
                   </View>
-                  <Text style={[styles.moveItemText, { color: targetSubject === 'root' ? colors.textPrimary : colors.textSecondary, fontWeight: '800' }]}>📁  Main Dashboard (Root)</Text>
-                  {targetSubject === 'root' && <Check size={16} color={colors.primary} />}
+                  <Text style={[styles.moveItemText, { color: targetFolderId === 'root' ? colors.textPrimary : colors.textSecondary, fontWeight: '800' }]}>📁  Main Dashboard (Root)</Text>
+                  {targetFolderId === 'root' && <Check size={16} color={colors.primary} />}
                 </TouchableOpacity>
 
                 {/* Hierarchical Folders */}
@@ -1210,7 +1169,7 @@ export default function NotesProScreen() {
                   });
                   
                   return items.map((folder: any) => {
-                    const isSelected = targetSubject === folder.id;
+                    const isSelected = targetFolderId === folder.id;
                     const depthColors = ['#6366f1', '#10b981', '#f59e0b'];
                     const depthIcons = ['📂', '📁', '📄'];
                     const accentColor = depthColors[folder.depth] || colors.primary;
@@ -1225,7 +1184,7 @@ export default function NotesProScreen() {
                           borderWidth: isSelected ? 2 : 1,
                         }]}
                         onPress={() => {
-                          setTargetSubject(folder.id);
+                          setTargetFolderId(folder.id);
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
                       >
@@ -1250,17 +1209,18 @@ export default function NotesProScreen() {
             </ScrollView>
 
             <TouchableOpacity 
-              disabled={!targetSubject || isMoving}
+              disabled={!targetFolderId || isMoving}
               style={[styles.moveSubmitBtn, { 
-                backgroundColor: targetSubject ? colors.primary : colors.border,
-                opacity: !targetSubject ? 0.5 : (isMoving ? 0.6 : 1),
+                backgroundColor: targetFolderId ? colors.primary : colors.border,
+                opacity: !targetFolderId ? 0.5 : (isMoving ? 0.6 : 1),
               }]}
               onPress={() => {
-                if (!targetSubject || isMoving || !moveTarget) {
+                const sourceNodeId = moveTarget?.id;
+                if (!targetFolderId || isMoving || !sourceNodeId) {
                   Alert.alert('Pick a destination', 'Tap a folder above (or "Main Dashboard") before confirming.');
                   return;
                 }
-                handleMoveAction(moveTarget.id, targetSubject);
+                handleMoveAction(sourceNodeId, targetFolderId);
               }}
               activeOpacity={0.7}
             >
