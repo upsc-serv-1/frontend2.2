@@ -338,23 +338,31 @@ export default function ReviewScreen() {
                       {currentCard.front_text || currentCard.question_text || currentCard.question}
                     </Text>
 
-                    {currentCard.source?.options &&
-                      Object.entries(currentCard.source.options).map(([k, v]) => {
+                    {/* Render Interactive Options */}
+                    {(() => {
+                      const options = currentCard.source?.options || currentCard.options || {};
+                      const optionEntries = Object.entries(options);
+                      if (optionEntries.length === 0) return null;
+
+                      return optionEntries.map(([k, v]) => {
                         const isSelected = selectedOption === k;
-                        const isCorrectOption = (currentCard.correct_answer || '').toLowerCase().includes(k.toLowerCase());
+                        // Support both single letter (A) or the full option key
+                        const correctKey = (currentCard.correct_answer || '').toLowerCase();
+                        const isCorrectOption = correctKey === k.toLowerCase() || correctKey.includes(k.toLowerCase());
+                        
                         let optBg = colors.surface;
                         let optBorder = colors.border;
 
                         if (showCorrect) {
                           if (isCorrectOption) {
-                            optBg = '#22c55e20';
+                            optBg = '#22c55e15';
                             optBorder = '#22c55e';
                           } else if (isSelected) {
-                            optBg = '#ef444420';
+                            optBg = '#ef444415';
                             optBorder = '#ef4444';
                           }
                         } else if (isSelected) {
-                          optBg = `${colors.primary}15`;
+                          optBg = `${colors.primary}10`;
                           optBorder = colors.primary;
                         }
 
@@ -365,48 +373,50 @@ export default function ReviewScreen() {
                               if (!isFlipped && !showCorrect) {
                                 setSelectedOption(k);
                                 setShowCorrect(true);
-                                Haptics.notificationAsync(
-                                  isCorrectOption
-                                    ? Haptics.NotificationFeedbackType.Success
-                                    : Haptics.NotificationFeedbackType.Error
-                                );
+                                if (isCorrectOption) {
+                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                                } else {
+                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+                                }
                               }
                             }}
+                            activeOpacity={0.8}
                             style={{
                               flexDirection: 'row',
-                              marginTop: 10,
-                              gap: 12,
-                              padding: 12,
-                              borderRadius: 12,
-                              borderWidth: 1,
+                              marginTop: 8,
+                              gap: 10,
+                              padding: 10,
+                              borderRadius: 14,
+                              borderWidth: 1.5,
                               backgroundColor: optBg,
                               borderColor: optBorder,
+                              minHeight: 48,
+                              alignItems: 'center'
                             }}
                           >
                             <View
                               style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 12,
+                                width: 28,
+                                height: 28,
+                                borderRadius: 14,
                                 backgroundColor: isSelected
-                                  ? showCorrect
-                                    ? isCorrectOption
-                                      ? '#22c55e'
-                                      : '#ef4444'
-                                    : colors.primary
+                                  ? (showCorrect ? (isCorrectOption ? '#22c55e' : '#ef4444') : colors.primary)
                                   : colors.surfaceStrong,
                                 alignItems: 'center',
                                 justifyContent: 'center',
                               }}
                             >
-                              <Text style={{ fontWeight: '900', color: isSelected ? '#fff' : colors.textTertiary, fontSize: 12 }}>{k}</Text>
+                              <Text style={{ fontWeight: '900', color: isSelected ? '#fff' : colors.textTertiary, fontSize: 13 }}>
+                                {k.toUpperCase()}
+                              </Text>
                             </View>
-                            <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '400' }}>
+                            <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '500', lineHeight: (editorFontSize - 4) * 1.3 }}>
                               {v as string}
                             </Text>
                           </TouchableOpacity>
                         );
-                      })}
+                      });
+                    })()}
 
                     {currentCard.front_image_url && (
                       <Image source={{ uri: currentCard.front_image_url }} resizeMode="contain" style={{ width: '100%', height: 200, marginTop: 12, borderRadius: 8 }} />

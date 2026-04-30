@@ -148,10 +148,7 @@ export class FlashcardSvc {
     if (sText && sText !== qText) {
       parts.push(sText);
     }
-    if (optionLines) {
-      parts.push(optionLines);
-    }
-
+    // We DON'T add optionLines here anymore because they will be rendered as buttons
     const front_text = parts
       .filter(Boolean)
       .join('\n\n')
