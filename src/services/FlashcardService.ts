@@ -132,7 +132,7 @@ export class FlashcardSvc {
   // ============ CREATE FROM QUIZ QUESTION (req #1, #2, #3) ============
   static async createFromQuestion(userId: string, q: any) {
     const opts = q.options ?? q.question_options ?? {};
-    const stmtLines = Array.isArray(q.statement_lines) ? q.statement_lines.join('\n') : '';
+    const stmt = q.statement_line || (Array.isArray(q.statement_lines) ? q.statement_lines.join('\n') : q.statement_lines || '');
     
     // Ensure we actually have options text to show
     const optionEntries = Object.entries(opts);
@@ -140,7 +140,7 @@ export class FlashcardSvc {
       ? optionEntries.map(([k, v]) => `(${k.toUpperCase()}) ${v}`).join('\n')
       : '';
 
-    const front_text = [q.question_text || q.questionText || '', stmtLines, optionLines]
+    const front_text = [q.question_text || q.questionText || '', stmt, optionLines]
       .filter(Boolean)
       .join('\n\n')
       .trim();
@@ -178,17 +178,21 @@ export class FlashcardSvc {
         i.institute === instituteSrc.institute && i.year === instituteSrc.year
       );
       
-      if (!alreadyPresent) {
-        const newInstitutes = [...existing, instituteSrc];
+      const shouldUpdateFront = !card.front_text || card.front_text.length < front_text.length;
+
+      if (!alreadyPresent || shouldUpdateFront) {
+        const newInstitutes = alreadyPresent ? existing : [...existing, instituteSrc];
         // Merge the source labels into the back text so they appear in the UI
         const allSources = newInstitutes.map(i => `• ${i.institute}${i.year ? ` ${i.year}` : ''}${i.correct ? ` (${i.correct.toUpperCase()})` : ''}`).join('  ');
         const updatedBack = `**Merged Sources:**\n${allSources}\n\n${card.back_text || back_text}`;
 
         await supabase.from('cards').update({
           institutes: newInstitutes,
-          merged_from: [...(card.merged_from || []), q.id],
+          merged_from: alreadyPresent ? card.merged_from : [...(card.merged_from || []), q.id],
           back_text: updatedBack,
-          answer_text: updatedBack // for compatibility
+          front_text: shouldUpdateFront ? front_text : card.front_text, // REPAIR front if missing options
+          answer_text: updatedBack,
+          question_text: shouldUpdateFront ? front_text : card.front_text
         }).eq('id', card.id);
       }
       await this.linkUserCard(userId, card.id);
