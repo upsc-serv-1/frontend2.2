@@ -106,11 +106,11 @@ export default function ReviewScreen() {
       let query = supabase.from('cards').select('*');
 
       if (selectedMicrotopic) {
-        query = query.eq('subject', selectedSubject).eq('microtopic', selectedMicrotopic);
+        query = query.ilike('subject', selectedSubject).ilike('microtopic', selectedMicrotopic);
         if (selectedSection && selectedSection !== 'General') {
-          query = query.eq('section_group', selectedSection);
+          query = query.ilike('section_group', selectedSection);
         } else {
-          query = query.or('section_group.is.null,section_group.eq.General');
+          query = query.or('section_group.is.null,section_group.ilike.General');
         }
       }
 

@@ -357,17 +357,17 @@ export class FlashcardSvc {
 
   static async deleteCard(userId: string, cardId: string) {
     // 1. Force delete any existing progress/state for this card
-    console.log(`[FlashcardSvc] Deleting all user_cards entries for user=${userId}, card=${cardId}`);
-    const { error: deleteErr } = await supabase
+    console.log(`[FlashcardSvc] Deleting user_cards entries: user=${userId}, card=${cardId}`);
+    const { error: deleteErr, count } = await supabase
       .from('user_cards')
-      .delete()
-      .eq('user_id', userId)
-      .eq('card_id', cardId);
+      .delete({ count: 'exact' })
+      .match({ user_id: userId, card_id: cardId });
       
     if (deleteErr) {
       console.error('[FlashcardSvc] user_cards delete error:', deleteErr);
       throw deleteErr;
     }
+    console.log(`[FlashcardSvc] Deleted ${count} existing user_cards rows.`);
 
     // 2. Check if this is a manual card (not a shared question) and delete from cards too if so
     const { data: cardData } = await supabase

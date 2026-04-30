@@ -77,9 +77,9 @@ export default function MicrotopicModal() {
         supabase
           .from('cards')
           .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes')
-          .eq('subject', subject as string)
-          .eq('microtopic', microtopic as string)
-          .or(`section_group.eq.${sec},section_group.is.null`),
+          .ilike('subject', subject as string)
+          .ilike('microtopic', microtopic as string)
+          .or(`section_group.ilike.${sec},section_group.is.null`),
         supabase
           .from('user_cards')
           .select('*')
