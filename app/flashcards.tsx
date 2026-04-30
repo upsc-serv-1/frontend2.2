@@ -239,30 +239,38 @@ export default function FlashcardsDashboard() {
   };
 
   const renderHeatmap = () => {
-    const days = Array.from({ length: 21 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (20 - i));
-      const key = d.toISOString().split('T')[0];
-      const val = heatmapData[key] || 0;
-      return { key, val };
-    });
+    // Show last 21 days
+    const cells = [];
+    const now = new Date();
+    
+    for (let i = 20; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const val = heatmapData[dateStr] || 0;
+      
+      let cellColor = colors.surfaceStrong;
+      if (val > 0) cellColor = `${colors.primary}30`;
+      if (val > 10) cellColor = `${colors.primary}60`;
+      if (val > 25) cellColor = `${colors.primary}90`;
+      if (val > 50) cellColor = colors.primary;
+      
+      cells.push(
+        <View 
+          key={dateStr} 
+          style={[styles.heatmapCell, { backgroundColor: cellColor }]} 
+        />
+      );
+    }
 
     return (
-      <View style={styles.heatmapBox}>
+      <View style={[styles.heatmapBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.heatmapHeader}>
           <Flame size={16} color="#f97316" />
-          <Text style={[styles.heatmapTitle, { color: colors.textPrimary }]}>Activity Heatmap</Text>
+          <Text style={[styles.heatmapTitle, { color: colors.textSecondary }]}>Study Consistency</Text>
         </View>
         <View style={styles.heatmapGrid}>
-          {days.map(d => (
-            <View 
-              key={d.key} 
-              style={[
-                styles.heatmapCell, 
-                { backgroundColor: d.val > 50 ? '#166534' : d.val > 20 ? '#22c55e' : d.val > 0 ? '#bbf7d0' : '#f1f5f9' }
-              ]} 
-            />
-          ))}
+          {cells}
         </View>
       </View>
     );
@@ -328,7 +336,7 @@ export default function FlashcardsDashboard() {
         </View>
       </View>
     );
-  };
+
 
   return (
     <PageWrapper>
