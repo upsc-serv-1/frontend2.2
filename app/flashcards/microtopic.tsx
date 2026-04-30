@@ -52,7 +52,7 @@ export default function MicrotopicModal() {
   const { colors } = useTheme();
   const router = useRouter();
   const { session } = useAuth();
-  const { subject, section, microtopic } = useLocalSearchParams();
+  const { subject, section, microtopic, branchId, name: branchName } = useLocalSearchParams();
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -65,49 +65,63 @@ export default function MicrotopicModal() {
 
   useEffect(() => {
     if (session?.user.id) loadCards();
-  }, [session, microtopic]);
+  }, [session, microtopic, branchId]);
 
   const loadCards = async () => {
     if (!refreshing) setLoading(true);
     try {
       const userId = session!.user.id;
-      const allParams = { subject, microtopic, section };
-      console.log('[FlashcardDeck] Raw Params:', JSON.stringify(allParams));
-
-      const sSubject = (Array.isArray(subject) ? subject[0] : (subject as string)) || '';
-      const sTopic = (Array.isArray(microtopic) ? microtopic[0] : (microtopic as string)) || '';
-      const sSection = (Array.isArray(section) ? section[0] : (section as string)) || 'General';
-
-      console.log(`[FlashcardDeck] Cleaned Params: sub="${sSubject}", topic="${sTopic}", sec="${sSection}"`);
-
-      // 1. Build Base Query
-      let baseQuery = supabase
-        .from('cards')
-        .select('*')
-        .ilike('subject', sSubject);
-
-      // Only add specific filters if they are provided
-      if (sTopic) {
-        baseQuery = baseQuery.ilike('microtopic', sTopic);
-      }
+      let base: any[] = [];
       
-      if (sSection && sSection !== 'General') {
-        baseQuery = baseQuery.ilike('section_group', sSection);
+      if (branchId) {
+        console.log(`[FlashcardDeck] Loading by Branch ID: ${branchId}`);
+        const { data: mappings } = await supabase
+          .from('flashcard_branch_cards')
+          .select('card_id')
+          .eq('branch_id', branchId);
+        
+        if (mappings && mappings.length > 0) {
+          const cardIds = mappings.map(m => m.card_id);
+          const { data: cardsData, error: cardsError } = await supabase
+            .from('cards')
+            .select('*')
+            .in('id', cardIds);
+          if (cardsError) console.error('[FlashcardDeck] Cards Query Error:', cardsError);
+          base = cardsData || [];
+        }
+      } else {
+        const sSubject = (Array.isArray(subject) ? subject[0] : (subject as string)) || '';
+        const sTopic = (Array.isArray(microtopic) ? microtopic[0] : (microtopic as string)) || '';
+        const sSection = (Array.isArray(section) ? section[0] : (section as string)) || 'General';
+
+        console.log(`[FlashcardDeck] Cleaned Params: sub="${sSubject}", topic="${sTopic}", sec="${sSection}"`);
+
+        // 1. Build Base Query
+        let baseQuery = supabase
+          .from('cards')
+          .select('*')
+          .ilike('subject', sSubject);
+
+        // Only add specific filters if they are provided
+        if (sTopic) {
+          baseQuery = baseQuery.ilike('microtopic', sTopic);
+        }
+        
+        if (sSection && sSection !== 'General') {
+          baseQuery = baseQuery.ilike('section_group', sSection);
+        }
+
+        const { data: legacyData, error: legacyError } = await baseQuery;
+        if (legacyError) console.error('[FlashcardDeck] Legacy Base Query Error:', legacyError);
+        base = legacyData || [];
       }
 
-      const [baseRes, progRes] = await Promise.all([
-        baseQuery,
-        supabase
-          .from('user_cards')
-          .select('*')
-          .eq('user_id', userId),
-      ]);
+      const { data: prog, error: progError } = await supabase
+        .from('user_cards')
+        .select('*')
+        .eq('user_id', userId);
 
-      if (baseRes.error) console.error('[FlashcardDeck] Base Query Error:', baseRes.error);
-      if (progRes.error) console.error('[FlashcardDeck] Prog Query Error:', progRes.error);
-
-      const base = baseRes.data || [];
-      const prog = progRes.data || [];
+      if (progError) console.error('[FlashcardDeck] Prog Query Error:', progError);
       
       console.log(`[FlashcardDeck] DB Results: base=${base.length}, user_cards=${prog.length}`);
       
@@ -300,8 +314,8 @@ export default function MicrotopicModal() {
             <ArrowLeft size={24} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
-            <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-              {microtopic || section || subject}
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+              {branchName || microtopic || 'Microtopic Deck'}
             </Text>
             <Text style={[styles.headerSub, { color: colors.textTertiary }]}>
               {microtopic ? `${subject} • ${section}` : (section ? subject : 'All Topics')}

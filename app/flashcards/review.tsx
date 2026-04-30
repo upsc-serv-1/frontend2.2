@@ -37,12 +37,13 @@ import { FlashcardSvc, CardState } from '../../src/services/FlashcardService';
 import { FlashcardLocalCache } from '../../src/services/FlashcardLocalCache';
 import { pickAndUploadFlashcardImage } from '../../src/services/ImageUpload';
 import { PageWrapper } from '../../src/components/PageWrapper';
+import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
 
 export default function ReviewScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { session } = useAuth();
-  const { microtopic, subject, section, mode, cardId } = useLocalSearchParams();
+  const { microtopic, subject, section, mode, cardId, branchId } = useLocalSearchParams();
 
   const selectedMicrotopic = Array.isArray(microtopic) ? microtopic[0] : microtopic;
   const selectedSubject = Array.isArray(subject) ? subject[0] : subject;
@@ -105,7 +106,16 @@ export default function ReviewScreen() {
     try {
       let query = supabase.from('cards').select('*');
 
-      if (selectedMicrotopic) {
+      if (branchId) {
+        const ids = await FlashcardBranchService.getCardsRecursive(session!.user.id, branchId as string);
+        if (ids.length > 0) {
+          query = query.in('id', ids);
+        } else {
+          setQueue([]);
+          setLoading(false);
+          return;
+        }
+      } else if (selectedMicrotopic) {
         query = query.ilike('subject', selectedSubject).ilike('microtopic', selectedMicrotopic);
         if (selectedSection && selectedSection !== 'General') {
           query = query.ilike('section_group', selectedSection);

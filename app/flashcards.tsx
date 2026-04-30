@@ -34,6 +34,16 @@ import { useAuth } from '../src/context/AuthContext';
 import { useTheme } from '../src/context/ThemeContext';
 import { ThemeSwitcher } from '../src/components/ThemeSwitcher';
 import { PageWrapper } from '../src/components/PageWrapper';
+import { Swipeable } from 'react-native-gesture-handler';
+import { FlashcardBranchService, BranchNode } from '../src/services/FlashcardBranchService';
+import { 
+  Trash2, 
+  Archive, 
+  CornerUpRight, 
+  FolderPlus,
+  Eye,
+  EyeOff
+} from 'lucide-react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -42,12 +52,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 interface TreeItem {
   id: string;
   name: string;
-  type: 'subject' | 'section' | 'microtopic';
+  type: 'branch';
   parentId: string | null;
   cardCount: number;
   dueCount: number;
   isOpen: boolean;
   level: number;
+  is_archived: boolean;
+  children?: BranchNode[];
 }
 
 export default function FlashcardsDashboard() {
@@ -58,10 +70,16 @@ export default function FlashcardsDashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, due: 0, mastered: 0, streak: 0, accuracy: 0 });
   const [treeData, setTreeData] = useState<TreeItem[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   
   const [heatmapData, setHeatmapData] = useState<Record<string, number>>({});
+  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+  const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<TreeItem | null>(null);
+  const [newBranchName, setNewBranchName] = useState("");
+  const swipeableRefs = useRef<Record<string, Swipeable | null>>({});
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(
@@ -81,8 +99,10 @@ export default function FlashcardsDashboard() {
   }, [loading]);
 
   const loadData = async (bypassCache = false) => {
+    if (!userId) return;
     const cacheKey = `flashcards_dashboard_cache_${userId}`;
     
+    // 1. Initial Load from Cache
     if (!bypassCache) {
       try {
         const cached = await AsyncStorage.getItem(cacheKey);
@@ -91,7 +111,6 @@ export default function FlashcardsDashboard() {
           setStats(parsed.stats);
           setHeatmapData(parsed.heatmapData);
           setTreeData(parsed.treeData);
-          (global as any).rawHierarchy = parsed.rawHierarchy;
         } else {
           setLoading(true);
         }
@@ -103,14 +122,17 @@ export default function FlashcardsDashboard() {
     }
 
     try {
-      const [{ data: cards }, { data: states }, { data: sessions }] = await Promise.all([
-        supabase.from('cards').select('id, subject, section_group, microtopic'),
-        supabase.from('user_cards').select('*').eq('user_id', userId),
+      // 2. Bootstrap & Fetch Tree
+      await FlashcardBranchService.bootstrapIfEmpty(userId);
+      const branches = await FlashcardBranchService.getTree(userId, { includeArchived: showArchived });
+      
+      // 3. Fetch Stats & Heatmap
+      const [{ data: states }, { data: sessions }] = await Promise.all([
+        supabase.from('user_cards').select('status, learning_status, next_review').eq('user_id', userId),
         supabase.from('study_sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(30)
       ]);
       
       const now = new Date();
-      
       const studied = states?.length || 0;
       const due = states?.filter(c => 
         c.status === 'active' && 
@@ -124,56 +146,40 @@ export default function FlashcardsDashboard() {
       const heatmap: Record<string, number> = {};
       sessions?.forEach(s => heatmap[s.date] = s.cards_reviewed);
       setHeatmapData(heatmap);
+      setStats({ total: studied, due, mastered, streak: 0, accuracy });
 
-      const hierarchy: any = {};
-      states?.forEach(state => {
-        const c = cards?.find(x => x.id === state.card_id);
-        if (!c || state.status === 'deleted') return;
+      // 4. Transform branches to Flat Tree for FlatList
+      const flatten = (nodes: BranchNode[], level = 0): TreeItem[] => {
+        const result: TreeItem[] = [];
+        nodes.forEach(node => {
+          result.push({
+            id: node.id,
+            name: node.name,
+            type: 'branch',
+            parentId: node.parent_id,
+            cardCount: node.cardCount || 0,
+            dueCount: 0, // TODO: Implement due count per branch if needed
+            isOpen: false,
+            level: node.level || level,
+            is_archived: node.is_archived,
+            children: node.children
+          });
+        });
+        return result;
+      };
 
-        const sub = c.subject;
-        const sec = c.section_group || "General";
-        const micro = c.microtopic;
-        const isDue = state.status === 'active' && state.learning_status !== 'not_studied' && (!state.next_review || new Date(state.next_review) <= now);
+      const topLevel = flatten(branches);
+      setTreeData(topLevel);
 
-        if (!hierarchy[sub]) hierarchy[sub] = { name: sub, due: 0, total: 0, sections: {} };
-        if (!hierarchy[sub].sections[sec]) hierarchy[sub].sections[sec] = { name: sec, due: 0, total: 0, microtopics: {} };
-        if (!hierarchy[sub].sections[sec].microtopics[micro]) hierarchy[sub].sections[sec].microtopics[micro] = { name: micro, due: 0, total: 0 };
-
-        if (isDue) {
-          hierarchy[sub].due++;
-          hierarchy[sub].sections[sec].due++;
-          hierarchy[sub].sections[sec].microtopics[micro].due++;
-        }
-        hierarchy[sub].total++;
-        hierarchy[sub].sections[sec].total++;
-        hierarchy[sub].sections[sec].microtopics[micro].total++;
-      });
-
-      const initialTree: TreeItem[] = Object.keys(hierarchy).sort().map(sub => ({
-        id: sub,
-        name: sub,
-        type: 'subject',
-        parentId: null,
-        cardCount: hierarchy[sub].total,
-        dueCount: hierarchy[sub].due,
-        isOpen: false,
-        level: 0
-      }));
-
-      const newStats = { total: studied, due, mastered, streak: sessions?.length || 0, accuracy };
-      setStats(newStats);
-      setTreeData(initialTree);
-      (global as any).rawHierarchy = hierarchy;
-
+      // Save to cache
       await AsyncStorage.setItem(cacheKey, JSON.stringify({
-        stats: newStats,
+        stats: { total: studied, due, mastered, streak: 0, accuracy },
         heatmapData: heatmap,
-        treeData: initialTree,
-        rawHierarchy: hierarchy
+        treeData: topLevel
       }));
 
     } catch (err) {
-      console.error(err);
+      console.error('Load data error:', err);
     } finally {
       setLoading(false);
     }
@@ -183,41 +189,36 @@ export default function FlashcardsDashboard() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     
     if (item.isOpen && !forceExpand) {
-      setTreeData(prev => prev.filter(n => {
-        if (n.parentId === item.id) return false;
-        if (n.parentId && n.parentId.startsWith(item.id + '|')) return false;
-        return true;
-      }).map(n => n.id === item.id ? { ...n, isOpen: false } : n));
+      // Close node: remove all descendants
+      const removeIds = new Set<string>();
+      const collectIds = (nodes: any[]) => {
+        nodes.forEach(n => {
+          removeIds.add(n.id);
+          if (n.children) collectIds(n.children);
+        });
+      };
+      if (item.children) collectIds(item.children);
+
+      setTreeData(prev => prev.filter(n => !removeIds.has(n.id)).map(n => n.id === item.id ? { ...n, isOpen: false } : n));
     } else {
-      const hierarchy = (global as any).rawHierarchy;
-      let children: TreeItem[] = [];
-      
-      if (item.type === 'subject') {
-        const subData = hierarchy[item.id];
-        children = Object.keys(subData.sections).sort().map(sec => ({
-          id: `${item.id}|${sec}`,
-          name: sec,
-          type: 'section',
-          parentId: item.id,
-          cardCount: subData.sections[sec].total,
-          dueCount: subData.sections[sec].due,
-          isOpen: false,
-          level: 1
-        }));
-      } else if (item.type === 'section') {
-        const [sub, sec] = item.id.split('|');
-        const secData = hierarchy[sub].sections[sec];
-        children = Object.keys(secData.microtopics).sort().map(micro => ({
-          id: `${item.id}|${micro}`,
-          name: micro,
-          type: 'microtopic',
-          parentId: item.id,
-          cardCount: secData.microtopics[micro].total,
-          dueCount: secData.microtopics[micro].due,
-          isOpen: false,
-          level: 2
-        }));
+      // Open node: insert immediate children
+      if (!item.children || item.children.length === 0) {
+        setTreeData(prev => prev.map(n => n.id === item.id ? { ...n, isOpen: true } : n));
+        return;
       }
+
+      const children: TreeItem[] = item.children.map(child => ({
+        id: child.id,
+        name: child.name,
+        type: 'branch',
+        parentId: item.id,
+        cardCount: child.cardCount || 0,
+        dueCount: 0,
+        isOpen: false,
+        level: (item.level || 0) + 1,
+        is_archived: child.is_archived,
+        children: child.children
+      }));
 
       const index = treeData.findIndex(n => n.id === item.id);
       const next = [...treeData];
@@ -228,19 +229,10 @@ export default function FlashcardsDashboard() {
   };
 
   const openDeckView = (item: TreeItem) => {
-    const params: any = { subject: '', section: '', microtopic: '' };
-    if (item.type === 'subject') {
-      params.subject = item.name;
-    } else if (item.type === 'section') {
-      params.subject = item.id.split('|')[0];
-      params.section = item.name;
-    } else if (item.type === 'microtopic') {
-      const parts = item.id.split('|');
-      params.subject = parts[0];
-      params.section = parts[1];
-      params.microtopic = item.name;
-    }
-    router.push({ pathname: '/flashcards/microtopic', params });
+    router.push({ 
+      pathname: '/flashcards/microtopic', 
+      params: { branchId: item.id, name: item.name } 
+    });
   };
 
   const renderHeatmap = () => {
@@ -281,56 +273,120 @@ export default function FlashcardsDashboard() {
     );
   };
 
+  const renderRightActions = (item: TreeItem) => {
+    return (
+      <View style={styles.rightActions}>
+        <TouchableOpacity 
+          style={[styles.actionSquare, { backgroundColor: colors.surfaceStrong }]}
+          onPress={() => {
+            swipeableRefs.current[item.id]?.close();
+            setSelectedNode(item);
+            setNewBranchName("");
+            setIsCreateModalVisible(true);
+          }}
+        >
+          <Plus size={18} color={colors.primary} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.actionSquare, { backgroundColor: colors.surfaceStrong }]}
+          onPress={() => {
+            swipeableRefs.current[item.id]?.close();
+            setSelectedNode(item);
+            setIsMoveModalVisible(true);
+          }}
+        >
+          <CornerUpRight size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.actionSquare, { backgroundColor: colors.surfaceStrong }]}
+          onPress={async () => {
+            swipeableRefs.current[item.id]?.close();
+            await FlashcardBranchService.updateBranch(userId!, item.id, { is_archived: !item.is_archived });
+            loadData(true);
+          }}
+        >
+          <Archive size={18} color={item.is_archived ? colors.primary : colors.textSecondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.actionSquare, { backgroundColor: '#fee2e2' }]}
+          onPress={async () => {
+            swipeableRefs.current[item.id]?.close();
+            Alert.alert("Delete Branch", "This will hide this branch and its sub-branches. Global cards remain in deck.", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Delete", style: "destructive", onPress: async () => {
+                await FlashcardBranchService.deleteBranch(userId!, item.id);
+                loadData(true);
+              }}
+            ]);
+          }}
+        >
+          <Trash2 size={18} color="#ef4444" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const renderTreeItem = ({ item }: { item: TreeItem }) => {
-    const isSubject = item.type === 'subject';
-    const isMicro = item.type === 'microtopic';
+    const isMicro = !item.children || item.children.length === 0;
     const paddingLeft = item.level * 32 + 20;
-    const hasChildren = !isMicro;
+    const hasChildren = item.children && item.children.length > 0;
 
     return (
-      <View key={item.id} style={styles.treeRowContainer}>
-        {item.level > 0 && (
-          <View style={[
-            styles.vLine, 
-            { 
-              left: (item.level - 1) * 32 + 34, 
-              backgroundColor: colors.border,
-              top: -14,
-              bottom: item.isOpen ? 0 : 20 
-            }
-          ]} />
-        )}
-        
-        <View style={[styles.treeRow, { paddingLeft }]}>
-          {hasChildren ? (
-            <TouchableOpacity 
-              onPress={() => toggleNode(item)}
-              style={[styles.expandBtn, { backgroundColor: colors.surfaceStrong }]}
-            >
-              {item.isOpen ? <X size={14} color={colors.textPrimary} /> : <Plus size={14} color={colors.textPrimary} />}
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
-               <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.textTertiary }} />
-            </View>
+      <Swipeable
+        key={item.id}
+        ref={ref => swipeableRefs.current[item.id] = ref}
+        renderRightActions={() => renderRightActions(item)}
+        friction={2}
+        rightThreshold={40}
+      >
+        <View style={styles.treeRowContainer}>
+          {item.level > 0 && (
+            <View style={[
+              styles.vLine, 
+              { 
+                left: (item.level - 1) * 32 + 34, 
+                backgroundColor: colors.border,
+                top: -14,
+                bottom: item.isOpen ? 0 : 20 
+              }
+            ]} />
           )}
+          
+          <View style={[styles.treeRow, { paddingLeft, backgroundColor: colors.bg }]}>
+            {hasChildren ? (
+              <TouchableOpacity 
+                onPress={() => toggleNode(item)}
+                style={[styles.expandBtn, { backgroundColor: colors.surfaceStrong }]}
+              >
+                {item.isOpen ? <X size={14} color={colors.textPrimary} /> : <Plus size={14} color={colors.textPrimary} />}
+              </TouchableOpacity>
+            ) : (
+              <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                 <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.textTertiary }} />
+              </View>
+            )}
 
-          <TouchableOpacity 
-            style={styles.nodeContent} 
-            onPress={() => openDeckView(item)}
-          >
-            <Text style={[
-              styles.nodeName, 
-              { color: colors.textPrimary, fontSize: isSubject ? 20 : 16, fontWeight: isSubject ? '800' : '700' }
-            ]}>
-              {item.name}
-            </Text>
-            <Text style={[styles.nodeSub, { color: colors.textTertiary }]}>
-              Cards for today: <Text style={{ fontWeight: '800', color: item.dueCount > 0 ? colors.primary : colors.textTertiary }}>{item.dueCount}</Text>
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.nodeContent} 
+              onPress={() => openDeckView(item)}
+            >
+              <Text style={[
+                styles.nodeName, 
+                { color: item.isOpen ? colors.primary : colors.textPrimary },
+                item.is_archived && { color: colors.textTertiary, fontStyle: 'italic' }
+              ]}>
+                {item.name}
+              </Text>
+              <Text style={[styles.nodeSub, { color: colors.textTertiary }]}>
+                {item.cardCount} cards • {item.is_archived ? 'Archived' : 'Active'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </Swipeable>
     );
   };
 
@@ -391,7 +447,15 @@ export default function FlashcardsDashboard() {
 
               <View style={[styles.treeHeader, { backgroundColor: colors.bg, borderBottomWidth: 1, borderBottomColor: colors.border }]}>
                 <Text style={[styles.treeHeaderTitle, { color: colors.textTertiary }]}>SUBJECT HIERARCHY</Text>
-                <TouchableOpacity><Filter size={16} color={colors.textTertiary} /></TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity onPress={() => {
+                    setShowArchived(!showArchived);
+                    loadData(true);
+                  }}>
+                    {showArchived ? <Eye size={18} color={colors.primary} /> : <EyeOff size={18} color={colors.textTertiary} />}
+                  </TouchableOpacity>
+                  <TouchableOpacity><Filter size={18} color={colors.textTertiary} /></TouchableOpacity>
+                </View>
               </View>
 
               <View style={{ paddingBottom: 100 }}>
@@ -400,6 +464,78 @@ export default function FlashcardsDashboard() {
             </Animated.View>
           )}
         </ScrollView>
+
+        {/* Create Branch Modal */}
+        <Modal visible={isCreateModalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Create Child Branch</Text>
+              <Text style={[styles.modalSub, { color: colors.textTertiary }]}>Adding under: {selectedNode?.name}</Text>
+              <TextInput 
+                style={[styles.modalInput, { color: colors.textPrimary, borderColor: colors.border }]}
+                placeholder="Branch Name"
+                placeholderTextColor={colors.textTertiary}
+                value={newBranchName}
+                onChangeText={setNewBranchName}
+                autoFocus
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity onPress={() => setIsCreateModalVisible(false)} style={styles.modalBtn}>
+                  <Text style={{ color: colors.textSecondary, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={async () => {
+                    if (!newBranchName.trim()) return;
+                    await FlashcardBranchService.createBranch(userId!, newBranchName.trim(), selectedNode?.id);
+                    setIsCreateModalVisible(false);
+                    loadData(true);
+                  }} 
+                  style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>Create</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Move Branch Modal - Simplified for now, can be expanded to a tree picker */}
+        <Modal visible={isMoveModalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Move Branch</Text>
+              <Text style={[styles.modalSub, { color: colors.textTertiary }]}>Moving: {selectedNode?.name}</Text>
+              <ScrollView style={{ maxHeight: 300, marginVertical: 12 }}>
+                <TouchableOpacity 
+                  style={[styles.moveOption, { borderBottomColor: colors.border }]}
+                  onPress={async () => {
+                    await FlashcardBranchService.moveBranch(userId!, selectedNode!.id, null);
+                    setIsMoveModalVisible(false);
+                    loadData(true);
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Move to Top Level</Text>
+                </TouchableOpacity>
+                {treeData.filter(n => n.id !== selectedNode?.id && n.level < 2).map(node => (
+                  <TouchableOpacity 
+                    key={node.id}
+                    style={[styles.moveOption, { borderBottomColor: colors.border }]}
+                    onPress={async () => {
+                      await FlashcardBranchService.moveBranch(userId!, selectedNode!.id, node.id);
+                      setIsMoveModalVisible(false);
+                      loadData(true);
+                    }}
+                  >
+                    <Text style={{ color: colors.textPrimary, marginLeft: node.level * 12 }}>{node.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity onPress={() => setIsMoveModalVisible(false)} style={styles.modalBtn}>
+                <Text style={{ color: colors.textSecondary, textAlign: 'center', fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </PageWrapper>
   );
@@ -438,5 +574,64 @@ const styles = StyleSheet.create({
   expandBtn: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
   nodeContent: { flex: 1, marginLeft: 12 },
   nodeName: { fontSize: 16, fontWeight: '700' },
-  nodeSub: { fontSize: 12, marginTop: 2 }
+  nodeSub: { fontSize: 12, marginTop: 2 },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 8,
+    gap: 4
+  },
+  actionSquare: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 8
+  },
+  modalSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 20
+  },
+  modalInput: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    marginBottom: 24
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  modalBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  moveOption: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  }
 });
