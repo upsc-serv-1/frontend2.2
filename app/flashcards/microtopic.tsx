@@ -12,7 +12,8 @@ import {
   TextInput,
   Modal,
   ScrollView,
-  Alert
+  Alert,
+  RefreshControl
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { 
@@ -52,6 +53,7 @@ export default function MicrotopicModal() {
   const { subject, section, microtopic } = useLocalSearchParams();
   
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [cards, setCards] = useState<CardItem[]>([]);
   const [stats, setStats] = useState({ due: 0, new: 0, learning: 0, mastered: 0 });
   const [sortBy, setSortBy] = useState<'next' | 'newest' | 'oldest' | 'az'>('next');
@@ -64,41 +66,63 @@ export default function MicrotopicModal() {
   }, [session, microtopic]);
 
   const loadCards = async () => {
-    setLoading(true);
+    if (!refreshing) setLoading(true);
     try {
       const userId = session!.user.id;
       const sec = (section as string) || 'General';
 
-      const [summary, items] = await Promise.all([
-        FlashcardSvc.getDeckSummary(userId, subject as string, sec, microtopic as string),
-        FlashcardSvc.listCardsWithProgress(userId, subject as string, sec, microtopic as string),
+      // Always fetch the base catalog; LEFT-JOIN progress so un-linked cards still show
+      const [baseRes, progRes] = await Promise.all([
+        supabase
+          .from('cards')
+          .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes')
+          .eq('subject', subject as string)
+          .eq('microtopic', microtopic as string)
+          .or(`section_group.eq.${sec},section_group.is.null`),
+        supabase
+          .from('user_cards')
+          .select('*')
+          .eq('user_id', userId),
       ]);
+      const base = baseRes.data || [];
+      const progByCardId: Record<string, any> = {};
+      (progRes.data || []).forEach((p: any) => (progByCardId[p.card_id] = p));
 
-      setStats({
-        due: summary.due_count ?? 0,
-        new: summary.new_count ?? 0,
-        learning: summary.learning_count ?? 0,
-        mastered: summary.mastered_count ?? 0,
+      const merged: CardItem[] = base.map((bc: any) => {
+        const p = progByCardId[bc.id] || {};
+        return {
+          id: bc.id,
+          front_text: bc.front_text || bc.question_text || '',
+          back_text:  bc.back_text  || bc.answer_text  || '',
+          status:     p.status     || 'active',
+          learning_status: p.learning_status || 'not_studied',
+          next_review: p.next_review,
+          updated_at:  p.updated_at || bc.created_at,
+          preview:     (p.user_note || bc.front_text || bc.question_text || '').slice(0, 80),
+          user_note:   p.user_note || '',
+        };
       });
-
-      const merged: CardItem[] = items.map((it: any) => ({
-        id: it.id,
-        front_text: it.front_text || it.question_text || '',
-        back_text: it.back_text || it.answer_text || '',
-        status: it.status || 'active',
-        learning_status: it.learning_status || 'not_studied',
-        next_review: it.next_review,
-        updated_at: it.updated_at || it.created_at,
-        preview: it.preview,
-        user_note: it.user_note,
-      }));
-
       setCards(merged);
+
+      // Recompute tally directly from merged (avoids view-lag on just-linked cards)
+      const now = Date.now();
+      setStats({
+        due:      merged.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now).length,
+        new:      merged.filter(c => c.learning_status === 'not_studied').length,
+        learning: merged.filter(c => c.learning_status === 'learning' || c.learning_status === 'review').length,
+        mastered: merged.filter(c => c.learning_status === 'mastered').length,
+      });
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadCards();
+    setRefreshing(false);
   };
 
   const filteredAndSortedCards = useMemo(() => {
@@ -152,6 +176,17 @@ export default function MicrotopicModal() {
               try {
                 await FlashcardSvc.deleteCardForUser(session.user.id, cardId);
                 setCards(prev => prev.filter(c => c.id !== cardId));
+                
+                // Refresh stats to reflect deletion
+                const sec = (section as string) || 'General';
+                const summary = await FlashcardSvc.getDeckSummary(session.user.id, subject as string, sec, microtopic as string);
+                setStats({
+                  due: summary.due_count ?? 0,
+                  new: summary.new_count ?? 0,
+                  learning: summary.learning_count ?? 0,
+                  mastered: summary.mastered_count ?? 0,
+                });
+
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
               } catch (err) {
                 console.error("Delete error:", err);
@@ -232,82 +267,91 @@ export default function MicrotopicModal() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* STATS & PROGRESS */}
-          <View style={styles.statsPanel}>
-            <View style={styles.statsRow}>
-              <StatItem label="Due" value={stats.due} color={colors.primary} />
-              <StatItem label="New" value={stats.new} color={colors.textTertiary} />
-              <StatItem label="Learning" value={stats.learning} color="#3b82f6" />
-              <StatItem label="Mastered" value={stats.mastered} color="#34c759" />
-            </View>
-            
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${(stats.mastered / (cards.length || 1)) * 100}%`, backgroundColor: '#34c759' }]} />
-                <View style={[styles.progressFill, { width: `${(stats.learning / (cards.length || 1)) * 100}%`, backgroundColor: '#3b82f6' }]} />
-              </View>
-              <Text style={[styles.progressText, { color: colors.textTertiary }]}>
-                {stats.mastered} of {cards.length} cards mastered
-              </Text>
-            </View>
+        <FlatList
+          ListHeaderComponent={
+            <View>
+              {/* STATS & PROGRESS */}
+              <View style={styles.statsPanel}>
+                <View style={styles.statsRow}>
+                  <StatItem label="Due" value={stats.due} color={colors.primary} />
+                  <StatItem label="New" value={stats.new} color={colors.textTertiary} />
+                  <StatItem label="Learning" value={stats.learning} color="#3b82f6" />
+                  <StatItem label="Mastered" value={stats.mastered} color="#34c759" />
+                </View>
+                
+                <View style={styles.progressContainer}>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${(stats.mastered / (cards.length || 1)) * 100}%`, backgroundColor: '#34c759' }]} />
+                    <View style={[styles.progressFill, { width: `${(stats.learning / (cards.length || 1)) * 100}%`, backgroundColor: '#3b82f6' }]} />
+                  </View>
+                  <Text style={[styles.progressText, { color: colors.textTertiary }]}>
+                    {stats.mastered} of {cards.length} cards mastered
+                  </Text>
+                </View>
 
-            <TouchableOpacity 
-              style={[styles.studyBtn, { backgroundColor: colors.primary }]}
-              onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section } })}
-            >
-              <Play size={20} color="#fff" fill="#fff" />
-              <Text style={styles.studyBtnText}>Study Cards</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* FILTERS & LIST */}
-          <View style={styles.listSection}>
-            <View style={styles.listHeader}>
-              <View style={styles.filterRow}>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'all' && { backgroundColor: colors.primary }]} onPress={() => setFilterBy('all')}>
-                  <Text style={[styles.filterText, filterBy === 'all' && { color: '#fff' }]}>All Active</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'due' && { backgroundColor: '#f59e0b' }]} onPress={() => setFilterBy('due')}>
-                  <Text style={[styles.filterText, filterBy === 'due' && { color: '#fff' }]}>Due</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'new' && { backgroundColor: '#94a3b8' }]} onPress={() => setFilterBy('new')}>
-                  <Text style={[styles.filterText, filterBy === 'new' && { color: '#fff' }]}>New</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'learning' && { backgroundColor: '#3b82f6' }]} onPress={() => setFilterBy('learning')}>
-                  <Text style={[styles.filterText, filterBy === 'learning' && { color: '#fff' }]}>Learning</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'mastered' && { backgroundColor: '#34c759' }]} onPress={() => setFilterBy('mastered')}>
-                  <Text style={[styles.filterText, filterBy === 'mastered' && { color: '#fff' }]}>Mastered</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.filterChip, filterBy === 'frozen' && { backgroundColor: '#ef4444' }]} onPress={() => setFilterBy('frozen')}>
-                  <Text style={[styles.filterText, filterBy === 'frozen' && { color: '#fff' }]}>Frozen</Text>
+                <TouchableOpacity 
+                  style={[styles.studyBtn, { backgroundColor: colors.primary }]}
+                  onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section } })}
+                >
+                  <Play size={20} color="#fff" fill="#fff" />
+                  <Text style={styles.studyBtnText}>Study Cards</Text>
                 </TouchableOpacity>
               </View>
-              
-              <TouchableOpacity style={styles.sortBtn} onPress={() => setSortBy(sortBy === 'next' ? 'newest' : 'next')}>
-                {sortBy === 'next' ? <SortAsc size={18} color={colors.textTertiary} /> : <SortDesc size={18} color={colors.textTertiary} />}
-              </TouchableOpacity>
-            </View>
 
-            {loading ? (
+              {/* FILTERS & LIST */}
+              <View style={styles.listSection}>
+                <View style={styles.listHeader}>
+                  <View style={styles.filterRow}>
+                    <TouchableOpacity style={[styles.filterChip, filterBy === 'all' && { backgroundColor: colors.primary }]} onPress={() => setFilterBy('all')}>
+                      <Text style={[styles.filterText, filterBy === 'all' && { color: '#fff' }]}>All Active</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.filterChip, filterBy === 'due' && { backgroundColor: '#f59e0b' }]} onPress={() => setFilterBy('due')}>
+                      <Text style={[styles.filterText, filterBy === 'due' && { color: '#fff' }]}>Due</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.filterChip, filterBy === 'new' && { backgroundColor: '#94a3b8' }]} onPress={() => setFilterBy('new')}>
+                      <Text style={[styles.filterText, filterBy === 'new' && { color: '#fff' }]}>New</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.filterChip, filterBy === 'learning' && { backgroundColor: '#3b82f6' }]} onPress={() => setFilterBy('learning')}>
+                      <Text style={[styles.filterText, filterBy === 'learning' && { color: '#fff' }]}>Learning</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.filterChip, filterBy === 'mastered' && { backgroundColor: '#34c759' }]} onPress={() => setFilterBy('mastered')}>
+                      <Text style={[styles.filterText, filterBy === 'mastered' && { color: '#fff' }]}>Mastered</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.filterChip, filterBy === 'frozen' && { backgroundColor: '#ef4444' }]} onPress={() => setFilterBy('frozen')}>
+                      <Text style={[styles.filterText, filterBy === 'frozen' && { color: '#fff' }]}>Frozen</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <TouchableOpacity style={styles.sortBtn} onPress={() => setSortBy(sortBy === 'next' ? 'newest' : 'next')}>
+                    {sortBy === 'next' ? <SortAsc size={18} color={colors.textTertiary} /> : <SortDesc size={18} color={colors.textTertiary} />}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          }
+          data={filteredAndSortedCards}
+          keyExtractor={item => item.id}
+          renderItem={renderCardItem}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            loading ? (
               <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
             ) : (
-              <FlatList
-                data={filteredAndSortedCards}
-                keyExtractor={item => item.id}
-                renderItem={renderCardItem}
-                scrollEnabled={false}
-                ListEmptyComponent={
-                  <View style={styles.empty}>
-                    <BookOpen size={48} color={colors.border} />
-                    <Text style={{ color: colors.textTertiary, marginTop: 12 }}>No cards match your filter</Text>
-                  </View>
-                }
-              />
-            )}
-          </View>
-        </ScrollView>
+              <View style={styles.empty}>
+                <BookOpen size={48} color={colors.border} />
+                <Text style={{ color: colors.textTertiary, marginTop: 12 }}>No cards match your filter</Text>
+              </View>
+            )
+          }
+        />
 
         {/* ADD CARDS MODAL */}
         <Modal visible={isAddModalVisible} animationType="slide" transparent>

@@ -12,6 +12,8 @@ import {
   ScrollView,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -363,7 +365,7 @@ export default function ReviewScreen() {
         <GestureHandlerRootView style={{ flex: 1 }}>
           <PinchGestureHandler onGestureEvent={onPinchGestureEvent} onHandlerStateChange={onPinchHandlerStateChange}>
             <View style={styles.cardSection}>
-              <TouchableOpacity activeOpacity={1} onPress={handleFlip} style={styles.cardTouch}>
+              <View style={styles.cardTouch}>
                 <Animated.View
                   style={[
                     styles.card,
@@ -377,7 +379,12 @@ export default function ReviewScreen() {
                 >
                   <Text style={[styles.cardSideLabel, { color: colors.primary }]}>QUESTION</Text>
 
-                  <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.cardScroll, { padding: 16 }]}>
+                  <ScrollView 
+                    style={{ flex: 1 }} 
+                    contentContainerStyle={[styles.cardScroll, { padding: 16 }]}
+                    showsVerticalScrollIndicator
+                    nestedScrollEnabled
+                  >
 
                     {/* Render Main Text and Interactive Options */}
                     {(() => {
@@ -413,18 +420,43 @@ export default function ReviewScreen() {
 
                       let rawText = (currentCard.front_text || currentCard.question_text || currentCard.question || '').trim();
 
-                      // REPAIR: If options are missing from metadata, try to extract them from rawText
+                      // REPAIR: If options missing from metadata, extract from rawText.
+                      // Matches: (A)..(E), (a)..(e), [A]..[E], A)..E), A.  B.  — case-insensitive.
                       if (Object.keys(normalizedOptions).length === 0 && rawText) {
-                        const optionRegex = /\(([A-D])\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g;
-                        let match;
-                        while ((match = optionRegex.exec(rawText)) !== null) {
-                          normalizedOptions[match[1].toLowerCase()] = match[2].trim();
+                        const patterns = [
+                          /[(\[]([A-Ea-e1-5])[)\]]\s*([\s\S]*?)(?=\s*[(\[][A-Ea-e1-5][)\]]|$)/g,
+                          /(?:^|\n)\s*([A-Ea-e1-5])[.):]\s+([\s\S]*?)(?=\n\s*[A-Ea-e1-5][.):]\s+|$)/g,
+                        ];
+                        for (const rgx of patterns) {
+                          let m: RegExpExecArray | null;
+                          while ((m = rgx.exec(rawText)) !== null) {
+                            const key = m[1].toLowerCase();
+                            const val = m[2].trim();
+                            if (val && !normalizedOptions[key]) normalizedOptions[key] = val;
+                          }
+                          if (Object.keys(normalizedOptions).length >= 2) break;
                         }
                       }
 
-                      const optionEntries = Object.entries(normalizedOptions).sort();
+                      // Canonical order: a,b,c,d,e then 1..5
+                      const orderKey = (k: string) =>
+                        /[a-e]/.test(k) ? k.charCodeAt(0) - 97 : parseInt(k, 10) + 100;
+                      const optionEntries = Object.entries(normalizedOptions)
+                        .sort((x, y) => orderKey(x[0]) - orderKey(y[0]));
+
+                      if (__DEV__ && optionEntries.length === 0) {
+                        console.warn('[Flashcard] No options detected', {
+                          cardId: currentCard.id,
+                          rawHead: rawText.slice(0, 120),
+                          metaHas: !!(meta as any)?.options,
+                        });
+                      }
+
+                      // Strip option lines from question stem — case-insensitive, covers all shapes used above
                       const cleanText = rawText
-                        .replace(/\([A-D]\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g, '')
+                        .replace(/[(\[][A-Ea-e1-5][)\]]\s*[\s\S]*?(?=\s*[(\[][A-Ea-e1-5][)\]]|$)/g, '')
+                        .replace(/(?:^|\n)\s*[A-Ea-e1-5][.):]\s+[\s\S]*?(?=\n\s*[A-Ea-e1-5][.):]\s+|$)/g, '')
+                        .replace(/\n{3,}/g, '\n\n')
                         .trim();
 
                       return (
@@ -436,16 +468,17 @@ export default function ReviewScreen() {
                           {optionEntries.map(([k, v]) => {
                             const optionKey = String(k).toLowerCase();
                             const isSelected = selectedOption === optionKey;
-                            const correctKey = (
+                            const correctRaw = (
                               currentCard.correct_answer ||
                               (meta as any)?.correct_answer ||
                               (meta as any)?.correctAnswer ||
                               ''
-                            )
-                              .toString()
-                              .trim()
-                              .toLowerCase();
-                            const isCorrectOption = correctKey === optionKey || correctKey.includes(optionKey);
+                            ).toString().trim().toLowerCase();
+                            const correctKeys = correctRaw
+                              .split(/[,\s/|]+/)
+                              .map((k) => k.replace(/[()[\]]/g, '').trim())
+                              .filter(Boolean);
+                            const isCorrectOption = correctKeys.includes(optionKey);
 
                             let optBg = colors.surface;
                             let optBorder = colors.border;
@@ -458,7 +491,6 @@ export default function ReviewScreen() {
                                 optBg = '#ef444415';
                                 optBorder = '#ef4444';
                               }
-<<<<<<< Updated upstream
                             } else if (isSelected) {
                               optBg = `${colors.primary}10`;
                               optBorder = colors.primary;
@@ -517,60 +549,19 @@ export default function ReviewScreen() {
                         </>
                       );
                       })()}
-=======
-                            }}
-                            activeOpacity={0.8}
-                            style={{
-                              flexDirection: 'row',
-                              marginTop: 8,
-                              gap: 10,
-                              padding: 10,
-                              borderRadius: 14,
-                              borderWidth: 1.5,
-                              backgroundColor: optBg,
-                              borderColor: optBorder,
-                              minHeight: 48,
-                              alignItems: 'center'
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 28,
-                                height: 28,
-                                borderRadius: 14,
-                                backgroundColor: isSelected
-                                  ? (showCorrect ? (isCorrectOption ? '#22c55e' : '#ef4444') : colors.primary)
-                                  : colors.surfaceStrong,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <Text style={{ fontWeight: '900', color: isSelected ? '#fff' : colors.textTertiary, fontSize: 13 }}>
-                                {k.toUpperCase()}
-                              </Text>
-                            </View>
-                            <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '500', lineHeight: (editorFontSize - 4) * 1.3 }}>
-                              {v as string}
-                            </Text>
-                          </TouchableOpacity>
-                        )
-                      })}
-                    </>
-                  )
-                })()}
->>>>>>> Stashed changes
+
 
                     {currentCard.front_image_url && (
                       <Image source={{ uri: currentCard.front_image_url }} resizeMode="contain" style={{ width: '100%', height: 200, marginTop: 12, borderRadius: 8 }} />
                     )}
                   </ScrollView>
 
-                  <View style={styles.flipHint}>
+                  <TouchableOpacity onPress={handleFlip} activeOpacity={0.6} style={styles.flipHint}>
                     <RotateCcw size={14} color={colors.textTertiary} />
                     <Text style={[styles.flipHintText, { color: colors.textTertiary }]}> 
                       {showCorrect ? 'Tap card to see explanation' : 'Select an option or tap to flip'}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 </Animated.View>
 
                 <Animated.View
@@ -629,12 +620,12 @@ export default function ReviewScreen() {
                     )}
                   </ScrollView>
 
-                  <View style={styles.flipHint}>
+                  <TouchableOpacity onPress={handleFlip} activeOpacity={0.6} style={styles.flipHint}>
                     <RotateCcw size={14} color={colors.textTertiary} />
                     <Text style={[styles.flipHintText, { color: colors.textTertiary }]}>Tap to see question</Text>
-                  </View>
+                  </TouchableOpacity>
                 </Animated.View>
-              </TouchableOpacity>
+              </View>
             </View>
           </PinchGestureHandler>
         </GestureHandlerRootView>
@@ -670,57 +661,62 @@ export default function ReviewScreen() {
         </View>
 
         <Modal visible={showEditModal} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Edit Card</Text>
-                <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                  <X size={24} color={colors.textPrimary} />
-                </TouchableOpacity>
-              </View>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+            style={{ flex: 1 }}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Edit Card</Text>
+                  <TouchableOpacity onPress={() => setShowEditModal(false)}>
+                    <X size={24} color={colors.textPrimary} />
+                  </TouchableOpacity>
+                </View>
 
-              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Personal Notes / Tricks</Text>
-              <TextInput
-                style={[styles.noteInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
-                multiline
-                placeholder="Add your own memory aids..."
-                placeholderTextColor={colors.textTertiary}
-                value={personalNote}
-                onChangeText={setPersonalNote}
-              />
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Personal Notes / Tricks</Text>
+                <TextInput
+                  style={[styles.noteInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
+                  multiline
+                  placeholder="Add your own memory aids..."
+                  placeholderTextColor={colors.textTertiary}
+                  value={personalNote}
+                  onChangeText={setPersonalNote}
+                />
 
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: `${colors.primary}20`, marginBottom: 12 }]}
-                onPress={async () => {
-                  if (!session?.user.id) return;
-                  const url = await pickAndUploadFlashcardImage(session.user.id);
-                  if (!url) return;
-                  await supabase.from('cards').update({ back_image_url: url }).eq('id', queue[currentIndex].id);
-                  const next = [...queue];
-                  next[currentIndex].back_image_url = url;
-                  setQueue(next);
-                  Alert.alert('Image added', 'Saved to card back.');
-                }}
-              >
-                <ImageIcon size={20} color={colors.primary} />
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Add Image to Back</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalBtn, { backgroundColor: `${colors.primary}20`, marginBottom: 12 }]}
+                  onPress={async () => {
+                    if (!session?.user.id) return;
+                    const url = await pickAndUploadFlashcardImage(session.user.id);
+                    if (!url) return;
+                    await supabase.from('cards').update({ back_image_url: url }).eq('id', queue[currentIndex].id);
+                    const next = [...queue];
+                    next[currentIndex].back_image_url = url;
+                    setQueue(next);
+                    Alert.alert('Image added', 'Saved to card back.');
+                  }}
+                >
+                  <ImageIcon size={20} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontWeight: '700' }}>Add Image to Back</Text>
+                </TouchableOpacity>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#ef444410' }]} onPress={handleDeleteCurrentCard}>
-                  <Trash2 size={20} color="#ef4444" />
-                  <Text style={{ color: '#ef4444', fontWeight: '700' }}>Delete</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#3b82f610' }]} onPress={freezeCard}>
-                  <Snowflake size={20} color="#3b82f6" />
-                  <Text style={{ color: '#3b82f6', fontWeight: '700' }}>Freeze</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.primary }]} onPress={savePersonalNote}>
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>Save</Text>
-                </TouchableOpacity>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#ef444410' }]} onPress={handleDeleteCurrentCard}>
+                    <Trash2 size={20} color="#ef4444" />
+                    <Text style={{ color: '#ef4444', fontWeight: '700' }}>Delete</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#3b82f610' }]} onPress={freezeCard}>
+                    <Snowflake size={20} color="#3b82f6" />
+                    <Text style={{ color: '#3b82f6', fontWeight: '700' }}>Freeze</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.primary }]} onPress={savePersonalNote}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>Save</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
     </PageWrapper>
@@ -741,7 +737,8 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     borderRadius: 32,
-    padding: 32,
+    padding: 16,
+    paddingTop: 20,
     borderWidth: 2,
     backfaceVisibility: 'hidden',
     elevation: 8,
@@ -751,7 +748,7 @@ const styles = StyleSheet.create({
   },
   cardBack: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   cardSideLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 2, marginBottom: 20, textAlign: 'center' },
-  cardScroll: { flexGrow: 1 },
+  cardScroll: { flexGrow: 1, paddingBottom: 12 },
   cardText: { fontWeight: '700', textAlign: 'center' },
   answerText: { fontWeight: '600', textAlign: 'center' },
   zoomIndicator: {
@@ -772,8 +769,8 @@ const styles = StyleSheet.create({
   noteBox: { marginTop: 30, padding: 16, borderRadius: 16 },
   noteLabel: { fontSize: 10, fontWeight: '900', marginBottom: 8 },
   noteText: { fontSize: 14, fontWeight: '500', lineHeight: 22 },
-  actions: { padding: 24, borderTopWidth: 1 },
-  showBtn: { height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  actions: { padding: 16, borderTopWidth: 1 },
+  showBtn: { height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', elevation: 4 },
   showBtnText: { color: '#fff', fontSize: 18, fontWeight: '900' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },

@@ -355,28 +355,45 @@ export class FlashcardSvc {
     if (error) throw error;
   }
 
-  static async deleteCardForUser(userId: string, cardId: string) {
-    console.log(`[FlashcardSvc] Attempting to delete user_card: userId=${userId}, cardId=${cardId}`);
-    
-    const { error, count } = await supabase
+  static async deleteCard(userId: string, cardId: string) {
+    // 1. Force delete any existing progress/state for this card
+    console.log(`[FlashcardSvc] Deleting all user_cards entries for user=${userId}, card=${cardId}`);
+    const { error: deleteErr } = await supabase
       .from('user_cards')
-      .delete({ count: 'exact' })
+      .delete()
       .eq('user_id', userId)
       .eq('card_id', cardId);
       
-    if (error) {
-      console.error('[FlashcardSvc] Delete error:', error);
-      throw error;
+    if (deleteErr) {
+      console.error('[FlashcardSvc] user_cards delete error:', deleteErr);
+      throw deleteErr;
+    }
+
+    // 2. Check if this is a manual card (not a shared question) and delete from cards too if so
+    const { data: cardData } = await supabase
+      .from('cards')
+      .select('card_type, question_id')
+      .eq('id', cardId)
+      .single();
+
+    if (cardData && (cardData.card_type === 'manual' || cardData.question_id?.startsWith('manual_'))) {
+      console.log(`[FlashcardSvc] Deleting master manual card: ${cardId}`);
+      await supabase.from('cards').delete().eq('id', cardId);
+    } else {
+      // For shared cards, insert a 'deleted' marker so it stays hidden from lists and counts
+      console.log(`[FlashcardSvc] Inserting deleted marker for shared card: ${cardId}`);
+      await supabase.from('user_cards').insert({
+        user_id: userId,
+        card_id: cardId,
+        status: 'deleted',
+        updated_at: new Date().toISOString()
+      });
     }
     
-    console.log(`[FlashcardSvc] Delete successful. Rows affected: ${count}`);
-    
-    // Also clear from local cache to prevent "ghost" restores
+    // 3. Clear from local cache
     try {
       await FlashcardLocalCache.clearCardState(userId, cardId);
-    } catch (e) {
-      console.warn('[FlashcardSvc] Failed to clear local cache for deleted card:', e);
-    }
+    } catch (e) {}
   }
 
   // ============ REVIEW (SM-2 + bucket updates) ============
@@ -417,7 +434,9 @@ export class FlashcardSvc {
 
     const { error: upErr } = await supabase
       .from('user_cards')
-      .update({
+      .upsert({
+        user_id: userId,
+        card_id: cardId,
         ease_factor: sm.ease_factor,
         interval_days: sm.interval_days,
         repetitions: sm.repetitions,
@@ -430,9 +449,7 @@ export class FlashcardSvc {
         times_seen: Number(cur.times_seen ?? 0) + 1,
         client_updated_at: new Date().toISOString(),
         dirty: false,
-      })
-      .eq('user_id', userId)
-      .eq('card_id', cardId);
+      }, { onConflict: 'user_id,card_id' });
 
     if (upErr) throw upErr;
 
@@ -480,19 +497,31 @@ export class FlashcardSvc {
 
   // ============ DECK SUMMARY ============
   static async getDeckSummary(userId: string, subject: string, section: string, microtopic: string) {
-    const { data, error } = await supabase
+    // 1. Fetch all master cards for this microtopic to get the total pool
+    const { data: allCards, error: cardsErr } = await supabase
+      .from('cards')
+      .select('id')
+      .eq('subject', subject)
+      .eq('section_group', section || 'General')
+      .eq('microtopic', microtopic || 'General');
+
+    if (cardsErr) throw cardsErr;
+
+    // 2. Fetch user's progress for these cards
+    const cardIds = (allCards || []).map(c => c.id);
+    const { data: userStates, error: stateErr } = await supabase
       .from('user_cards')
-      .select('learning_status, next_review, status, cards!inner(subject, section_group, microtopic)')
+      .select('card_id, learning_status, next_review, status')
       .eq('user_id', userId)
-      .eq('cards.subject', subject)
-      .eq('cards.section_group', section)
-      .eq('cards.microtopic', microtopic);
+      .in('card_id', cardIds);
 
-    if (error) throw error;
+    if (stateErr) throw stateErr;
 
+    const stateMap = new Map(userStates?.map(s => [s.card_id, s]) || []);
     const now = new Date();
+    
     const stats = {
-      total: data.length,
+      total: 0,
       new_count: 0,
       learning_count: 0,
       mastered_count: 0,
@@ -500,23 +529,26 @@ export class FlashcardSvc {
       frozen_count: 0
     };
 
-    data.forEach((card: any) => {
-      if (card.status === 'frozen') {
-        stats.frozen_count++;
-        return;
-      }
+    (allCards || []).forEach((c: any) => {
+      const state = stateMap.get(c.id);
       
-      const status = card.learning_status;
-      if (status === 'not_studied') {
+      // If marked as deleted, skip entirely
+      if (state?.status === 'deleted') return;
+
+      stats.total++;
+
+      if (!state || state.learning_status === 'not_studied') {
         stats.new_count++;
-      } else if (status === 'mastered') {
+      } else if (state.status === 'frozen') {
+        stats.frozen_count++;
+      } else if (state.learning_status === 'mastered') {
         stats.mastered_count++;
       } else {
         stats.learning_count++;
       }
 
-      // A card is ONLY "Due" if it's NOT new and its review time has passed
-      if (status !== 'not_studied' && card.next_review && new Date(card.next_review) <= now) {
+      // Only count as "Due" if it's already been studied and review time has passed
+      if (state && state.learning_status !== 'not_studied' && state.status === 'active' && state.next_review && new Date(state.next_review) <= now) {
         stats.due_count++;
       }
     });
@@ -526,29 +558,41 @@ export class FlashcardSvc {
 
   // ============ CARD LIST WITH PREVIEW ============
   static async listCardsWithProgress(userId: string, subject: string, section: string, microtopic: string) {
-    const { data, error } = await supabase
+    // 1. Fetch all cards for this microtopic
+    const { data: allCards, error: cardsErr } = await supabase
+      .from('cards')
+      .select('*')
+      .eq('subject', subject)
+      .eq('section_group', section || 'General')
+      .eq('microtopic', microtopic || 'General');
+
+    if (cardsErr) throw cardsErr;
+
+    // 2. Fetch user's progress for these cards
+    const cardIds = (allCards || []).map(c => c.id);
+    const { data: userStates, error: stateErr } = await supabase
       .from('user_cards')
-      .select(`
-        *,
-        cards!inner (
-          id, front_text, back_text, question_text, answer_text,
-          subject, section_group, microtopic,
-          front_image_url, back_image_url, institutes
-        )
-      `)
+      .select('*')
       .eq('user_id', userId)
-      .eq('cards.subject', subject)
-      .eq('cards.section_group', section || 'General')
-      .eq('cards.microtopic', microtopic || 'General');
+      .in('card_id', cardIds);
 
-    if (error) throw error;
+    if (stateErr) throw stateErr;
 
-    return (data ?? []).map((d: any) => ({
-      ...d.cards,
-      ...d,
-      id: d.card_id,
-      preview: (d.user_note || d.cards.front_text || d.cards.question_text || '').slice(0, 80),
-    }));
+    const stateMap = new Map(userStates?.map(s => [s.card_id, s]) || []);
+
+    return (allCards ?? [])
+      .map((c: any) => {
+        const state = stateMap.get(c.id);
+        return {
+          ...c,
+          ...(state || {}),
+          id: c.id, // Ensure we use the master card ID
+          learning_status: state?.learning_status || 'not_studied',
+          status: state?.status || 'active',
+          preview: (state?.user_note || c.front_text || c.question_text || '').slice(0, 80),
+        };
+      })
+      .filter(c => c.status !== 'deleted');
   }
 
   // ============ DUE CARDS WITH DAY LABEL ============

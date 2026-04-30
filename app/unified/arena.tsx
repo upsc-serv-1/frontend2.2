@@ -473,7 +473,10 @@ export default function UnifiedArenaSetup() {
       // 2. Fetch question metadata in large chunks to cover 20k+ questions
       // We perform multiple parallel requests to cover the full range
       const CHUNK_SIZE = 5000;
-      const RANGES = [[0, 4999], [5000, 9999], [10000, 14999], [15000, 19999]];
+      const RANGES = [
+        [0, 4999], [5000, 9999], [10000, 14999], 
+        [15000, 19999], [20000, 24999], [25000, 29999]
+      ];
       
       const qMetadataResults = await Promise.all(
         RANGES.map(range => 
@@ -570,7 +573,7 @@ export default function UnifiedArenaSetup() {
       let query = supabase.from('questions').select('*', { count: 'exact', head: true });
 
       if (activeTab === 'topic') {
-        if (selectedSubject !== 'All') query = query.eq('subject', selectedSubject);
+        if (selectedSubject !== 'All') query = query.ilike('subject', selectedSubject);
         if (selectedSection.length > 0) {
           const sections = selectedSection.map(s => s === "General" ? null : s);
           if (sections.includes(null)) {
@@ -749,7 +752,18 @@ export default function UnifiedArenaSetup() {
 
   // 4. Computed Filters
   const subjects = useMemo(() => {
-    return Array.from(new Set(metadata.map(m => m.subject).filter(Boolean))).sort();
+    const rawSubjects = metadata.map(m => m.subject).filter(Boolean);
+    const uniqueMap = new Map<string, string>();
+    
+    rawSubjects.forEach(s => {
+      const lower = s.toLowerCase().trim();
+      if (!uniqueMap.has(lower)) {
+        uniqueMap.set(lower, s); // Keep the first occurrence's casing for display
+      }
+    });
+
+    const dynamic = Array.from(uniqueMap.values()).sort();
+    return dynamic;
   }, [metadata]);
 
   const sections = useMemo(() => {
