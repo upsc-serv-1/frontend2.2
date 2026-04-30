@@ -114,6 +114,12 @@ export default function MicrotopicModal() {
         const { data: legacyData, error: legacyError } = await baseQuery;
         if (legacyError) console.error('[FlashcardDeck] Legacy Base Query Error:', legacyError);
         base = legacyData || [];
+
+        if (base.length === 0) {
+          // Fallback check: list ANY microtopics for this subject to see casing/naming
+          const { data: topics } = await supabase.from('cards').select('microtopic').ilike('subject', sSubject).limit(10);
+          console.log(`[FlashcardDeck] Diagnostic: Top 10 topics for "${sSubject}":`, topics?.map(t => t.microtopic));
+        }
       }
 
       const { data: prog, error: progError } = await supabase
@@ -125,11 +131,6 @@ export default function MicrotopicModal() {
       
       console.log(`[FlashcardDeck] DB Results: base=${base.length}, user_cards=${prog.length}`);
       
-      if (base.length === 0) {
-        // Fallback check: list ANY microtopics for this subject to see casing/naming
-        const { data: topics } = await supabase.from('cards').select('microtopic').ilike('subject', sSubject).limit(10);
-        console.log(`[FlashcardDeck] Diagnostic: Top 10 topics for "${sSubject}":`, topics?.map(t => t.microtopic));
-      }
 
       const progByCardId: Record<string, any> = {};
       prog.forEach((p: any) => (progByCardId[p.card_id] = p));

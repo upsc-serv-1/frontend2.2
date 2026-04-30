@@ -84,7 +84,6 @@ export class FlashcardBranchService {
 
           // Map cards
           const mappings = (cardIds as string[]).map(cardId => ({
-            user_id: userId,
             branch_id: microBranch.id,
             card_id: cardId
           }));
@@ -110,11 +109,12 @@ export class FlashcardBranchService {
     const { data: branches, error } = await query;
     if (error) throw error;
 
-    // Fetch card counts for leaf branches (or all branches for aggregation)
+    // Fetch card counts for branches
+    const branchIds = (branches ?? []).map(b => b.id);
     const { data: cardCounts } = await supabase
       .from('flashcard_branch_cards')
-      .select('branch_id, card_id')
-      .eq('user_id', userId);
+      .select('branch_id')
+      .in('branch_id', branchIds);
 
     const countsMap: Record<string, number> = {};
     cardCounts?.forEach(c => {
