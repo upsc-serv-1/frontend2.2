@@ -982,7 +982,6 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
 
     const focusedLabel = focusMicro !== 'All' ? focusMicro : focusSection !== 'All' ? `${focusSubject} / ${focusSection}` : focusSubject;
     const subjectCountRows = distributionData.map(item => [item.name, item.value]);
-    const topicRows = topTopics.map(topic => [topic, years.map(year => topicYearHeatmap[topic]?.[year] || 0).join(' / ')]);
 
     const blocks: string[] = [];
     const includeAll = mode === 'all';

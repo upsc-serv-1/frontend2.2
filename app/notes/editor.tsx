@@ -155,8 +155,9 @@ export default function NoteEditor() {
     if (!txt) return '';
     return txt
       .replace(/<span[^>]*text-decoration(?:-line)?\s*:\s*underline;?[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
-      .replace(/<(font|span)[^>]*style=['"][^'"]*background(?:-color)?\s*:\s*([^;'" ]+|rgb\s*\([^)]+\)|rgba\s*\([^)]+\))[^'"]*['"][^>]*>([\s\S]*?)<\/\1>/gi, '<mark style="background-color:$2">$3</mark>')
-      .replace(/<font[^>]*bgcolor=['"]([^'"]+)['"][^>]*>([\s\S]*?)<\/font>/gi, '<mark style="background-color:$1">$2</mark>');
+      .replace(/<(font|span|mark)[^>]*style=['"][^'"]*background(?:-color)?\s*:\s*([^;'" ]+|rgb\s*\([^)]+\)|rgba\s*\([^)]+\))[^'"]*['"][^>]*>([\s\S]*?)<\/\1>/gi, '<span style="background-color:$2; border-radius:2px; padding:0 2px;">$3</span>')
+      .replace(/<font[^>]*bgcolor=['"]([^'"]+)['"][^>]*>([\s\S]*?)<\/font>/gi, '<span style="background-color:$1; border-radius:2px; padding:0 2px;">$2</span>')
+      .replace(/<mark[^>]*>([\s\S]*?)<\/mark>/gi, '<span style="background-color:#FFF59D; border-radius:2px; padding:0 2px;">$1</span>');
   };
 
   // HELPER: Convert Markdown fallback to HTML if needed
