@@ -31,6 +31,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
+import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
 import { supabase } from '../../src/lib/supabase';
 import * as Haptics from 'expo-haptics';
 
@@ -72,16 +73,11 @@ export default function MicrotopicModal() {
     try {
       const userId = session!.user.id;
       let base: any[] = [];
-      
       if (branchId) {
         console.log(`[FlashcardDeck] Loading by Branch ID: ${branchId}`);
-        const { data: mappings } = await supabase
-          .from('flashcard_branch_cards')
-          .select('card_id')
-          .eq('branch_id', branchId);
+        const cardIds = await FlashcardBranchService.getCardsRecursive(userId, branchId as string);
         
-        if (mappings && mappings.length > 0) {
-          const cardIds = mappings.map(m => m.card_id);
+        if (cardIds.length > 0) {
           const { data: cardsData, error: cardsError } = await supabase
             .from('cards')
             .select('*')
