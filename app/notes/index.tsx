@@ -1115,7 +1115,7 @@ export default function NotesProScreen() {
               {isMoving ? <ActivityIndicator color="#fff" /> : <Text style={styles.moveSubmitText}>Confirm Move</Text>}
             </TouchableOpacity>
           </Pressable>
-        </View>
+        </Pressable>
       </Modal>
 
       {/* Folder Actions Modal */}
