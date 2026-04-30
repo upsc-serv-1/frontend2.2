@@ -428,23 +428,47 @@ export class FlashcardSvc {
   // ============ DECK SUMMARY ============
   static async getDeckSummary(userId: string, subject: string, section: string, microtopic: string) {
     const { data, error } = await supabase
-      .from('v_deck_summary')
-      .select('*')
+      .from('user_cards')
+      .select('learning_status, next_review, status, cards!inner(subject, section_group, microtopic)')
       .eq('user_id', userId)
-      .eq('subject', subject)
-      .eq('section_group', section || 'General')
-      .eq('microtopic', microtopic || 'General')
-      .maybeSingle();
+      .eq('cards.subject', subject)
+      .eq('cards.section_group', section)
+      .eq('cards.microtopic', microtopic);
 
     if (error) throw error;
 
-    return data ?? {
+    const now = new Date();
+    const stats = {
+      total: data.length,
       new_count: 0,
       learning_count: 0,
       mastered_count: 0,
       due_count: 0,
-      total_count: 0,
+      frozen_count: 0
     };
+
+    data.forEach((card: any) => {
+      if (card.status === 'frozen') {
+        stats.frozen_count++;
+        return;
+      }
+      
+      const status = card.learning_status;
+      if (status === 'not_studied') {
+        stats.new_count++;
+      } else if (status === 'mastered') {
+        stats.mastered_count++;
+      } else {
+        stats.learning_count++;
+      }
+
+      // A card is ONLY "Due" if it's NOT new and its review time has passed
+      if (status !== 'not_studied' && card.next_review && new Date(card.next_review) <= now) {
+        stats.due_count++;
+      }
+    });
+
+    return stats;
   }
 
   // ============ CARD LIST WITH PREVIEW ============

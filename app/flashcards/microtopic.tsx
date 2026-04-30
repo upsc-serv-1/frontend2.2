@@ -112,7 +112,12 @@ export default function MicrotopicModal() {
     else if (filterBy === 'learning') result = result.filter(c => c.status === 'active' && (c.learning_status === 'learning' || c.learning_status === 'review'));
     else if (filterBy === 'due') {
       const now = Date.now();
-      result = result.filter(c => c.status === 'active' && c.next_review && new Date(c.next_review).getTime() <= now);
+      result = result.filter(c => 
+        c.status === 'active' && 
+        c.learning_status !== 'not_studied' && // EXCLUDE NEW CARDS
+        c.next_review && 
+        new Date(c.next_review).getTime() <= now
+      );
     }
 
     // Sort

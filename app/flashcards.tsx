@@ -127,9 +127,14 @@ export default function FlashcardsDashboard() {
       const now = new Date();
       const userCardMap = new Map(states?.map(s => [s.card_id, s]) || []);
       
-      const total = cards?.length || 0;
       const studied = states?.length || 0;
-      const due = states?.filter(c => c.status === 'active' && (!c.next_review || new Date(c.next_review) <= now)).length || 0;
+      // ONLY count as due if already studied and time is up
+      const due = states?.filter(c => 
+        c.status === 'active' && 
+        c.learning_status !== 'not_studied' && 
+        (!c.next_review || new Date(c.next_review) <= now)
+      ).length || 0;
+      
       const mastered = states?.filter(c => c.learning_status === 'mastered').length || 0;
       const accuracy = studied > 0 ? Math.round((mastered / studied) * 100) : 0;
 
@@ -143,22 +148,29 @@ export default function FlashcardsDashboard() {
       const cardCounts: Record<string, number> = {};
       const dueCounts: Record<string, number> = {};
       
-      cards?.forEach(c => {
+      // We ONLY build the hierarchy from cards the user actually HAS in their deck
+      states?.forEach(state => {
+        const c = cards?.find(x => x.id === state.card_id);
+        if (!c) return;
+
         subjects.add(c.subject);
         const sec = c.section_group || "General";
         if (!sectionsMap.has(c.subject)) sectionsMap.set(c.subject, new Set());
         sectionsMap.get(c.subject)!.add(sec);
+        
         const mKey = `${c.subject}|${sec}`;
         if (!microtopicsMap.has(mKey)) microtopicsMap.set(mKey, new Set());
         microtopicsMap.get(mKey)!.add(c.microtopic);
+        
         const cKey = `${c.subject}|${sec}|${c.microtopic}`;
         cardCounts[cKey] = (cardCounts[cKey] || 0) + 1;
         
-        const state = userCardMap.get(c.id);
-        if (state?.status === 'active' && (!state.next_review || new Date(state.next_review) <= now)) {
+        if (state.status === 'active' && state.learning_status !== 'not_studied' && (!state.next_review || new Date(state.next_review) <= now)) {
           dueCounts[cKey] = (dueCounts[cKey] || 0) + 1;
         }
       });
+
+      const total = studied; // Total cards in MY deck
 
       const initialTree: TreeItem[] = Array.from(subjects).sort().map(s => ({
         id: s,
