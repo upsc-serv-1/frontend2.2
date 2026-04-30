@@ -20,6 +20,17 @@ export interface NewCardInput {
   test_id?: string | null;
 }
 
+export interface CardState {
+  status?: string;
+  learning_status?: 'not_studied' | 'learning' | 'mastered' | null;
+  next_review?: string | null;
+  user_note?: string | null;
+  repetitions?: number;
+  interval_days?: number;
+  ease_factor?: number;
+  lapses?: number;
+}
+
 export class FlashcardSvc {
   // ============ SUBJECT/DECK READS (unchanged behaviour) ============
   static async getSubjects(userId: string) {
@@ -45,15 +56,24 @@ export class FlashcardSvc {
   static async getCards(userId: string, subject: string, section: string, microtopic: string) {
     const { data, error } = await supabase
       .from('user_cards').select('*, cards!inner(*)')
-      .eq('user_id', userId).eq('cards.subject', subject)
-      .eq('cards.section_group', section).eq('cards.microtopic', microtopic);
+      .eq('user_id', userId)
+      .eq('cards.subject', subject)
+      .eq('cards.microtopic', microtopic);
     if (error) throw error;
-    return (data ?? []).map((d: any) => ({ ...d.cards, ...d, id: d.card_id }));
+
+    return (data ?? [])
+      .filter((d: any) => {
+        const rowSection = d.cards?.section_group;
+        return section === 'General' ? !rowSection || rowSection === 'General' : rowSection === section;
+      })
+      .map((d: any) => ({ ...d.cards, ...d, id: d.card_id }));
   }
   static async getDueCards(userId: string, limit = 50) {
     const { data, error } = await supabase
       .from('user_cards').select('*, cards!inner(*)')
-      .eq('user_id', userId).lte('next_review', new Date().toISOString())
+      .eq('user_id', userId)
+      .neq('status', 'frozen')
+      .lte('next_review', new Date().toISOString())
       .order('next_review', { ascending: true }).limit(limit);
     if (error) throw error;
     return (data ?? []).map((d: any) => ({ ...d.cards, ...d, id: d.card_id }));
@@ -99,9 +119,15 @@ export class FlashcardSvc {
       .from('user_cards').select('id').eq('user_id', userId).eq('card_id', card!.id).maybeSingle();
     if (!existing) {
       const { error } = await supabase.from('user_cards').insert({
-        user_id: userId, card_id: card!.id,
-        ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0,
-        next_review: new Date().toISOString(), status: 'new',
+        user_id: userId,
+        card_id: card!.id,
+        ease_factor: 2.5,
+        interval_days: 0,
+        repetitions: 0,
+        lapses: 0,
+        next_review: new Date().toISOString(),
+        status: 'active',
+        learning_status: 'not_studied',
       });
       if (error) throw error;
     }
@@ -164,8 +190,74 @@ export class FlashcardSvc {
     const { error } = await supabase.from('cards').update(updateData).eq('id', cardId);
     if (error) throw error;
   }
+  private static async cleanupOrphanCards(cardIds: string[]) {
+    if (!cardIds.length) return;
+
+    const uniqueIds = Array.from(new Set(cardIds));
+    const { data: remainingLinks, error: linksErr } = await supabase
+      .from('user_cards')
+      .select('card_id')
+      .in('card_id', uniqueIds);
+    if (linksErr) throw linksErr;
+
+    const linkedIds = new Set((remainingLinks ?? []).map((row: any) => row.card_id));
+    const orphanIds = uniqueIds.filter(id => !linkedIds.has(id));
+    if (!orphanIds.length) return;
+
+    const { error: deleteCardsErr } = await supabase.from('cards').delete().in('id', orphanIds);
+    if (deleteCardsErr) throw deleteCardsErr;
+  }
+
   static async deleteCardForUser(userId: string, cardId: string) {
     const { error } = await supabase.from('user_cards').delete().eq('user_id', userId).eq('card_id', cardId);
+    if (error) throw error;
+    await this.cleanupOrphanCards([cardId]);
+  }
+
+  static async deleteDeckForUser(userId: string, subject: string, section: string, microtopic: string) {
+    const { data, error } = await supabase
+      .from('user_cards')
+      .select('card_id, cards!inner(subject, section_group, microtopic)')
+      .eq('user_id', userId)
+      .eq('cards.subject', subject)
+      .eq('cards.microtopic', microtopic);
+    if (error) throw error;
+
+    const cardIds = (data ?? [])
+      .filter((row: any) => {
+        const rowSection = row.cards?.section_group;
+        return section === 'General' ? !rowSection || rowSection === 'General' : rowSection === section;
+      })
+      .map((row: any) => row.card_id);
+
+    if (!cardIds.length) return 0;
+
+    const { error: unlinkErr } = await supabase
+      .from('user_cards')
+      .delete()
+      .eq('user_id', userId)
+      .in('card_id', cardIds);
+    if (unlinkErr) throw unlinkErr;
+
+    await this.cleanupOrphanCards(cardIds);
+    return cardIds.length;
+  }
+
+  static async freezeCard(userId: string, cardId: string) {
+    const { error } = await supabase
+      .from('user_cards')
+      .update({ status: 'frozen', updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
+    if (error) throw error;
+  }
+
+  static async saveNote(userId: string, cardId: string, userNote: string) {
+    const { error } = await supabase
+      .from('user_cards')
+      .update({ user_note: userNote, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
     if (error) throw error;
   }
 
@@ -184,6 +276,12 @@ export class FlashcardSvc {
 
     const newLapses = (cur.lapses ?? 0) + (sm.lapsed ? 1 : 0);
 
+    const nextLearningStatus = sm.status === 'mastered'
+      ? 'mastered'
+      : sm.status === 'learning'
+        ? 'learning'
+        : 'learning';
+
     const { error: upErr } = await supabase.from('user_cards').update({
       ease_factor: sm.ease_factor,
       interval_days: sm.interval_days,
@@ -193,6 +291,7 @@ export class FlashcardSvc {
       last_quality: quality,
       lapses: newLapses,
       status: sm.status,
+      learning_status: nextLearningStatus,
     }).eq('user_id', userId).eq('card_id', cardId);
     if (upErr) throw upErr;
 
