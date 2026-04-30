@@ -81,6 +81,7 @@ export default function FlashcardsDashboard() {
   const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
   const [selectedNode, setSelectedNode] = useState<TreeItem | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
   const swipeableRefs = useRef<Record<string, Swipeable | null>>({});
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -113,6 +114,9 @@ export default function FlashcardsDashboard() {
           setStats(parsed.stats);
           setHeatmapData(parsed.heatmapData);
           setTreeData(parsed.treeData);
+          if (parsed.expandedNodeIds) {
+            setExpandedNodeIds(new Set(parsed.expandedNodeIds));
+          }
         } else {
           setLoading(true);
         }
@@ -151,33 +155,43 @@ export default function FlashcardsDashboard() {
       setStats({ total: studied, due, mastered, streak: 0, accuracy });
 
       // 4. Transform branches to Flat Tree for FlatList
-      const flatten = (nodes: BranchNode[], level = 0): TreeItem[] => {
+      const openIdsKey = `flashcards_expanded_nodes_${userId}`;
+      const rawOpenIds = await AsyncStorage.getItem(openIdsKey);
+      const openIds = new Set<string>(rawOpenIds ? JSON.parse(rawOpenIds) : []);
+      setExpandedNodeIds(openIds);
+
+      const flatten = (nodes: BranchNode[], level = 0, currentOpenIds: Set<string>): TreeItem[] => {
         const result: TreeItem[] = [];
         nodes.forEach(node => {
+          const isOpen = currentOpenIds.has(node.id);
           result.push({
             id: node.id,
             name: node.name,
             type: 'branch',
             parentId: node.parent_id,
             cardCount: node.cardCount || 0,
-            dueCount: 0, // TODO: Implement due count per branch if needed
-            isOpen: false,
+            dueCount: 0,
+            isOpen: isOpen,
             level: node.level || level,
             is_archived: node.is_archived,
             children: node.children
           });
+          if (isOpen && node.children && node.children.length > 0) {
+            result.push(...flatten(node.children, (node.level || level) + 1, currentOpenIds));
+          }
         });
         return result;
       };
 
-      const topLevel = flatten(branches);
-      setTreeData(topLevel);
+      const fullTree = flatten(branches, 0, openIds);
+      setTreeData(fullTree);
 
       // Save to cache
       await AsyncStorage.setItem(cacheKey, JSON.stringify({
         stats: { total: studied, due, mastered, streak: 0, accuracy },
         heatmapData: heatmap,
-        treeData: topLevel
+        treeData: fullTree,
+        expandedNodeIds: Array.from(openIds)
       }));
 
     } catch (err) {
@@ -187,15 +201,20 @@ export default function FlashcardsDashboard() {
     }
   };
 
-  const toggleNode = (item: TreeItem, forceExpand = false) => {
+  const toggleNode = async (item: TreeItem, forceExpand = false) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     
+    const newExpanded = new Set(expandedNodeIds);
+    const openIdsKey = `flashcards_expanded_nodes_${userId}`;
+
     if (item.isOpen && !forceExpand) {
       // Close node: remove all descendants
+      newExpanded.delete(item.id);
       const removeIds = new Set<string>();
       const collectIds = (nodes: any[]) => {
         nodes.forEach(n => {
           removeIds.add(n.id);
+          newExpanded.delete(n.id);
           if (n.children) collectIds(n.children);
         });
       };
@@ -204,30 +223,33 @@ export default function FlashcardsDashboard() {
       setTreeData(prev => prev.filter(n => !removeIds.has(n.id)).map(n => n.id === item.id ? { ...n, isOpen: false } : n));
     } else {
       // Open node: insert immediate children
+      newExpanded.add(item.id);
       if (!item.children || item.children.length === 0) {
         setTreeData(prev => prev.map(n => n.id === item.id ? { ...n, isOpen: true } : n));
-        return;
+      } else {
+        const children: TreeItem[] = item.children.map(child => ({
+          id: child.id,
+          name: child.name,
+          type: 'branch',
+          parentId: item.id,
+          cardCount: child.cardCount || 0,
+          dueCount: 0,
+          isOpen: false,
+          level: (item.level || 0) + 1,
+          is_archived: child.is_archived,
+          children: child.children
+        }));
+
+        const index = treeData.findIndex(n => n.id === item.id);
+        const next = [...treeData];
+        next[index] = { ...item, isOpen: true };
+        next.splice(index + 1, 0, ...children);
+        setTreeData(next);
       }
-
-      const children: TreeItem[] = item.children.map(child => ({
-        id: child.id,
-        name: child.name,
-        type: 'branch',
-        parentId: item.id,
-        cardCount: child.cardCount || 0,
-        dueCount: 0,
-        isOpen: false,
-        level: (item.level || 0) + 1,
-        is_archived: child.is_archived,
-        children: child.children
-      }));
-
-      const index = treeData.findIndex(n => n.id === item.id);
-      const next = [...treeData];
-      next[index] = { ...item, isOpen: true };
-      next.splice(index + 1, 0, ...children);
-      setTreeData(next);
     }
+
+    setExpandedNodeIds(newExpanded);
+    await AsyncStorage.setItem(openIdsKey, JSON.stringify(Array.from(newExpanded)));
   };
 
   const openDeckView = (item: TreeItem) => {
