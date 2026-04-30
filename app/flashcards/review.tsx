@@ -378,23 +378,43 @@ export default function ReviewScreen() {
                   <Text style={[styles.cardSideLabel, { color: colors.primary }]}>QUESTION</Text>
 
                   <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.cardScroll, { padding: 16 }]}>
-                    <Text style={[styles.cardText, { color: colors.textPrimary, fontSize: editorFontSize, lineHeight: editorFontSize * 1.5 }]}>
-                      {currentCard.front_text || currentCard.question_text || currentCard.question}
-                    </Text>
 
-                    {/* Render Interactive Options */}
+                    {/* Render Main Text and Interactive Options */}
                     {(() => {
                       let meta = currentCard.source;
                       if (typeof meta === 'string') {
                         try { meta = JSON.parse(meta); } catch(e) { meta = {}; }
                       }
 
-                      const options = (meta as any)?.options || currentCard.options || {};
-                      const optionEntries = Object.entries(options);
-                      if (optionEntries.length === 0) return null;
+                      let options = (meta as any)?.options || currentCard.options || {};
+                      let rawText = (currentCard.front_text || currentCard.question_text || currentCard.question || '').trim();
+                      
+                      // REPAIR: If options are missing from metadata, try to extract them from rawText
+                      if (Object.keys(options).length === 0 && rawText) {
+                        const optionRegex = /\(([A-D])\)\s+([^\n(]+)/g;
+                        let match;
+                        while ((match = optionRegex.exec(rawText)) !== null) {
+                          options[match[1].toLowerCase()] = match[2].trim();
+                        }
+                      }
 
-                      return optionEntries.map(([k, v]) => {
-                        const isSelected = selectedOption === k;
+                      const optionEntries = Object.entries(options).sort();
+                      
+                      // Strip extracted options from the displayed text to avoid double-printing
+                      const cleanText = rawText
+                        .replace(/\([A-D]\)\s+[^\n(]+/g, '')
+                        .trim();
+
+                      return (
+                        <>
+                          {/* Main Question Text */}
+                          <Text style={[styles.cardText, { color: colors.textPrimary, fontSize: editorFontSize, lineHeight: editorFontSize * 1.5, marginBottom: 12 }]}>
+                            {cleanText}
+                          </Text>
+
+                          {/* Options Buttons */}
+                          {optionEntries.map(([k, v]) => {
+                            const isSelected = selectedOption === k;
                         // Support both single letter (A) or the full option key
                         const correctKey = (currentCard.correct_answer || '').toLowerCase();
                         const isCorrectOption = correctKey === k.toLowerCase() || correctKey.includes(k.toLowerCase());
