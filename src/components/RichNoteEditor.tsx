@@ -108,11 +108,15 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
           actions.setBold,
           actions.setItalic,
           actions.setUnderline,
+          actions.undo,
+          actions.redo,
           actions.insertBulletsList,
           actions.insertOrderedList,
+          actions.heading1,
           'highlight_apply',
           'highlight_picker',
           'highlight_clear',
+          actions.removeFormat,
         ]}
         iconMap={{
           highlight_apply: ({ tintColor }: any) => (

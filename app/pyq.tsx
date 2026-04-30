@@ -922,7 +922,11 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
                     tc = l < 55 ? '#ffffff' : '#1e3a8a';
                   }
                 }
-                return `<td style="background-color: ${bg}; color: ${tc}; border: 1px solid #ffffff; border-radius: 4px; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
+                return `<td style="padding: 1px; border: none; width: 44px; height: 32px;">
+                  <div style="background-color: ${bg}; color: ${tc}; width: 44px; height: 32px; line-height: 32px; text-align: center; border-radius: 5px; font-weight: 800; font-size: 11px; -webkit-print-color-adjust: exact;">
+                    ${count || ''}
+                  </div>
+                </td>`;
               }).join('')}
             </tr>
           `).join('')}
@@ -1049,8 +1053,13 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
           .donut-legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; }
           .page-break { page-break-before: always; }
           
-          /* Prevent cutting */
-          table, tr, .chart-card, .bar-card, .donut-wrap { page-break-inside: avoid; }
+          /* Prevent cutting and force background colors */
+          table, tr, .chart-card, .bar-card, .donut-wrap { 
+            page-break-inside: avoid; 
+            -webkit-print-color-adjust: exact; 
+            print-color-adjust: exact; 
+          }
+          td, th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           thead { display: table-header-group; }
           tr { page-break-after: auto; }
         </style>
