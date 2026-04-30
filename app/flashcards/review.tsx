@@ -586,7 +586,12 @@ export default function ReviewScreen() {
                   ]}
                 >
                   <Text style={[styles.cardSideLabel, { color: '#34c759' }]}>ANSWER & EXPLANATION</Text>
-                  <ScrollView contentContainerStyle={styles.cardScroll}>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={[styles.cardScroll, { paddingBottom: 24 }]}
+                    showsVerticalScrollIndicator
+                    nestedScrollEnabled
+                  >
                     <Text style={[styles.answerText, { color: colors.textPrimary, fontSize: editorFontSize - 2, lineHeight: (editorFontSize - 2) * 1.5 }]}>
                       {currentCard.back_text || currentCard.answer_text || currentCard.answer}
                     </Text>
