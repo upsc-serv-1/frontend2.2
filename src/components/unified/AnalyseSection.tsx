@@ -6,6 +6,11 @@ import { useAggregateTestAnalytics } from '../../hooks/useTestAnalytics';
 import { LineChart, RadarChart, BarChart, DonutChart, ScatterPlot } from '../Charts';
 import { AlertTriangle, TrendingUp, Filter, Lightbulb, Clock, ShieldAlert, BarChart2 as BarChartIcon, Target } from 'lucide-react-native';
 import { DEFAULT_ANALYTICS_LAYOUT, loadAnalyticsLayout } from '../../utils/analyticsLayout';
+import {
+  buildAggregateHierarchicalAccuracy,
+  buildAggregateTestTrends,
+  evaluateRepeatedWeaknesses,
+} from '../../lib/hierarchical-analytics';
 
 interface AnalyseSectionProps {
   userId: string;
@@ -13,7 +18,15 @@ interface AnalyseSectionProps {
 
 export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
   const { colors } = useTheme();
-  const { loading, error, trends, cumulativeHierarchy, repeatedWeaknesses } = useAggregateTestAnalytics(userId);
+  const {
+    loading,
+    error,
+    trends,
+    cumulativeHierarchy,
+    repeatedWeaknesses,
+    rawAllQuestions,
+    rawAttemptsForTrend,
+  } = useAggregateTestAnalytics(userId);
   
   const screenWidth = Dimensions.get('window').width;
   const isCompactScreen = screenWidth < 390;
@@ -35,56 +48,106 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
     });
   }, []);
 
+  const filteredAggregate = useMemo(() => {
+    const safeAttempts = rawAttemptsForTrend || [];
+    const safeQuestions = rawAllQuestions || [];
+
+    if (safeAttempts.length === 0 || safeQuestions.length === 0) {
+      return null;
+    }
+
+    const fullTrends = buildAggregateTestTrends(safeAttempts);
+    const allScores = fullTrends?.historicalScores || [];
+
+    const selectedTestIds = selectedAttemptIndices && selectedAttemptIndices.length > 0
+      ? new Set(
+          allScores
+            .filter(item => selectedAttemptIndices.includes(item.attemptIndex))
+            .map(item => item.testId)
+        )
+      : new Set(allScores.map(item => item.testId));
+
+    const filteredAttempts = safeAttempts.filter(attempt => selectedTestIds.has(attempt.test_id));
+    const filteredQuestions = safeQuestions.filter(question => question?.testId && selectedTestIds.has(question.testId));
+
+    const filteredTrends = buildAggregateTestTrends(filteredAttempts);
+    const filteredCumulativeHierarchy = buildAggregateHierarchicalAccuracy(filteredQuestions);
+    const filteredRepeatedWeaknesses = evaluateRepeatedWeaknesses(filteredAttempts, filteredQuestions);
+
+    return {
+      trends: filteredTrends,
+      cumulativeHierarchy: filteredCumulativeHierarchy,
+      repeatedWeaknesses: filteredRepeatedWeaknesses,
+    };
+  }, [rawAllQuestions, rawAttemptsForTrend, selectedAttemptIndices]);
+
+  const selectableTrends = useMemo(() => {
+    if ((rawAttemptsForTrend?.length || 0) > 0) {
+      return buildAggregateTestTrends(rawAttemptsForTrend || []);
+    }
+    return trends;
+  }, [rawAttemptsForTrend, trends]);
+
+  const visibleTrends = filteredAggregate?.trends || trends;
+  const visibleCumulativeHierarchy = filteredAggregate?.cumulativeHierarchy || cumulativeHierarchy;
+  const visibleRepeatedWeaknesses = filteredAggregate?.repeatedWeaknesses || repeatedWeaknesses;
+
   const subjects = useMemo(() => {
-    if (!cumulativeHierarchy) return [];
+    if (!visibleCumulativeHierarchy) return [];
     // Only show subjects that actually have questions and are not "Unassigned"
-    return Object.keys(cumulativeHierarchy.subjects || {})
-      .filter(s => s !== "Unassigned Subject" && cumulativeHierarchy.subjects[s].total > 0)
+    return Object.keys(visibleCumulativeHierarchy.subjects || {})
+      .filter(s => s !== "Unassigned Subject" && visibleCumulativeHierarchy.subjects?.[s]?.total > 0)
       .sort((a, b) => a.localeCompare(b));
-  }, [cumulativeHierarchy]);
+  }, [visibleCumulativeHierarchy]);
 
   // Derive the active performance data based on filter
   const activePerf = useMemo(() => {
-    if (!cumulativeHierarchy) return null;
+    if (!visibleCumulativeHierarchy) return null;
     if (activeFilter === 'All' || activeFilter === 'PYQ') {
-      return cumulativeHierarchy.advanced;
+      return visibleCumulativeHierarchy.advanced;
     }
-    return cumulativeHierarchy.subjects[activeFilter]?.advanced || cumulativeHierarchy.advanced;
-  }, [cumulativeHierarchy, activeFilter]);
+    return visibleCumulativeHierarchy.subjects?.[activeFilter]?.advanced || visibleCumulativeHierarchy.advanced;
+  }, [visibleCumulativeHierarchy, activeFilter]);
 
   const activeStats = useMemo(() => {
-    if (!cumulativeHierarchy) return null;
+    if (!visibleCumulativeHierarchy) return null;
     if (activeFilter === 'All' || activeFilter === 'PYQ') {
-      // Calculate global stats
-      const total = Object.values(cumulativeHierarchy.subjects).reduce((a, b) => a + b.total, 0);
-      const correct = Object.values(cumulativeHierarchy.subjects).reduce((a, b) => a + b.correct, 0);
-      return { total, correct, accuracy: total > 0 ? Math.round((correct / total) * 100) : 0 };
+      const subjectValues = Object.values(visibleCumulativeHierarchy.subjects || {});
+      const total = subjectValues.reduce((a, b) => a + (b?.total || 0), 0);
+      const correct = subjectValues.reduce((a, b) => a + (b?.correct || 0), 0);
+      const timeSpent = subjectValues.reduce((a, b) => a + (b?.timeSpent || 0), 0);
+      return {
+        total,
+        correct,
+        timeSpent,
+        accuracy: total > 0 ? Math.round((correct / total) * 100) : 0,
+      };
     }
-    return cumulativeHierarchy.subjects[activeFilter];
-  }, [cumulativeHierarchy, activeFilter]);
+    return visibleCumulativeHierarchy.subjects?.[activeFilter] || null;
+  }, [visibleCumulativeHierarchy, activeFilter]);
 
   const generateSmartInsight = () => {
-    if (!trends || !cumulativeHierarchy) return "Analyzing your recent performances...";
-    
+    if (!visibleTrends || !visibleCumulativeHierarchy) return "Analyzing your recent performances...";
+
     let insight = "";
-    
+
     // Evaluate lowest subject
-    const subjectList = Object.values(cumulativeHierarchy.subjects);
+    const subjectList = Object.values(visibleCumulativeHierarchy.subjects || {});
     if (subjectList.length > 0) {
-      const sorted = [...subjectList].sort((a, b) => a.accuracy - b.accuracy);
+      const sorted = [...subjectList].sort((a, b) => (a?.accuracy || 0) - (b?.accuracy || 0));
       const lowest = sorted[0];
-      if (lowest.accuracy < 50) {
-        insight += `Your accuracy in ${lowest.name} is currently low at ${lowest.accuracy}%. Focus your revisions here. `;
+      if ((lowest?.accuracy || 0) < 50) {
+        insight += `Your accuracy in ${lowest?.name} is currently low at ${lowest?.accuracy}%. Focus your revisions here. `;
       } else {
-        insight += `Solid baseline accuracy across subjects, with ${lowest.name} being your weakest at ${lowest.accuracy}%. `;
+        insight += `Solid baseline accuracy across subjects, with ${lowest?.name} being your weakest at ${lowest?.accuracy}%. `;
       }
     }
 
     // Evaluate negative marking trend (last 3 tests)
-    const negatives = trends.negativeMarkingTrends;
+    const negatives = visibleTrends?.negativeMarkingTrends || [];
     if (negatives.length >= 2) {
-      const last = negatives[negatives.length - 1].negativeMarksPenalty;
-      const prev = negatives[negatives.length - 2].negativeMarksPenalty;
+      const last = negatives[negatives.length - 1]?.negativeMarksPenalty || 0;
+      const prev = negatives[negatives.length - 2]?.negativeMarksPenalty || 0;
       if (last > prev + 1) {
         insight += `Warning: Your negative marking penalty increased sharply in the latest test. Watch out for guessing!`;
       } else if (last < prev - 1) {
@@ -104,7 +167,12 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
     );
   }
 
-  if (error || !trends || !cumulativeHierarchy || (trends.historicalScores.length === 0 && Object.keys(cumulativeHierarchy.subjects).length === 0)) {
+  if (
+    error ||
+    !visibleTrends ||
+    !visibleCumulativeHierarchy ||
+    ((visibleTrends?.historicalScores?.length || 0) === 0 && Object.keys(visibleCumulativeHierarchy?.subjects || {}).length === 0)
+  ) {
     return (
       <View style={[styles.center, { padding: spacing.xl, marginTop: 100 }]}>
         <BarChartIcon color={colors.primary} size={48} opacity={0.5} />
@@ -123,49 +191,39 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
     );
   }
 
-  const filteredScores = useMemo(() => {
-    if (!trends || !trends.historicalScores) return [];
-    if (!selectedAttemptIndices) return trends.historicalScores;
-    return trends.historicalScores.filter(t => selectedAttemptIndices.includes(t.attemptIndex));
-  }, [trends, selectedAttemptIndices]);
-
-  const filteredNegatives = useMemo(() => {
-    if (!trends || !trends.negativeMarkingTrends) return [];
-    if (!selectedAttemptIndices) return trends.negativeMarkingTrends;
-    return trends.negativeMarkingTrends.filter(t => selectedAttemptIndices.includes(t.attemptIndex));
-  }, [trends, selectedAttemptIndices]);
+  const filteredScores = visibleTrends?.historicalScores || [];
+  const filteredNegatives = visibleTrends?.negativeMarkingTrends || [];
+  const allSelectableScores = selectableTrends?.historicalScores || [];
 
   const scoreChartData = [{
     label: 'Overall Score',
-    values: filteredScores.map(t => t.score)
+    values: filteredScores.map(t => t?.score || 0)
   }];
-  const scoreLabels = filteredScores.map(t => `Test ${t.attemptIndex}`);
+  const scoreLabels = filteredScores.map(t => `Test ${t?.attemptIndex}`);
 
   const negativeChartData = [{
     label: 'Negative Penalty',
-    values: filteredNegatives.map(t => t.negativeMarksPenalty)
+    values: filteredNegatives.map(t => t?.negativeMarksPenalty || 0)
   }];
 
   const lineLabelStep = scoreLabels.length > 18 ? 3 : scoreLabels.length > 11 ? 2 : 1;
   const lineChartWidth = Math.max(screenWidth - spacing.lg * 4, scoreLabels.length * (isCompactScreen ? 56 : 48));
-  const compactScoreLabels = filteredScores.map(t => `T${t.attemptIndex}`);
+  const compactScoreLabels = filteredScores.map(t => `T${t?.attemptIndex}`);
 
   // Determine what to show in Drill Down
   let drillDownItems: { name: string; accuracy: number; isSection: boolean }[] = [];
   if (activeFilter === 'All' || activeFilter === 'PYQ') {
-    // Show all subjects
-    drillDownItems = Object.values(cumulativeHierarchy.subjects).map(sub => ({
-      name: sub.name,
-      accuracy: sub.accuracy,
+    drillDownItems = Object.values(visibleCumulativeHierarchy?.subjects || {}).map(sub => ({
+      name: sub?.name || 'Unknown',
+      accuracy: sub?.accuracy || 0,
       isSection: false
     }));
   } else {
-    // Show sections for the selected subject
-    const selectedSubject = cumulativeHierarchy.subjects[activeFilter];
+    const selectedSubject = visibleCumulativeHierarchy?.subjects?.[activeFilter];
     if (selectedSubject) {
-      drillDownItems = Object.values(selectedSubject.sectionGroups).map(sec => ({
-        name: sec.name,
-        accuracy: sec.accuracy,
+      drillDownItems = Object.values(selectedSubject.sectionGroups || {}).map(sec => ({
+        name: sec?.name || 'Unknown',
+        accuracy: sec?.accuracy || 0,
         isSection: true
       }));
     }
@@ -205,7 +263,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         </Text>
       </View>
     ) : null,
-    repeated_weaknesses: (activeFilter === 'All' || activeFilter === 'PYQ') && repeatedWeaknesses.length > 0 ? (
+    repeated_weaknesses: (activeFilter === 'All' || activeFilter === 'PYQ') && visibleRepeatedWeaknesses.length > 0 ? (
       <View key="repeated_weaknesses" style={[styles.chartCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.cardHeader}>
           <AlertTriangle size={18} color="#ef4444" />
@@ -215,7 +273,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
           These sections have kept slipping across multiple submitted tests.
         </Text>
         <View style={styles.drillList}>
-          {repeatedWeaknesses.map((name) => (
+          {visibleRepeatedWeaknesses.map((name) => (
             <View key={name} style={[styles.drillItem, { borderBottomColor: colors.border + '50' }]}>
               <Text style={[styles.drillItemName, { color: colors.textPrimary }]}>{name}</Text>
               <View style={[styles.repeatedBadge, { backgroundColor: '#fee2e2' }]}>
@@ -226,7 +284,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         </View>
       </View>
     ) : null,
-    performance_trajectory: (activeFilter === 'All' || activeFilter === 'PYQ') && trends.historicalScores.length > 0 ? (
+    performance_trajectory: (activeFilter === 'All' || activeFilter === 'PYQ') && (visibleTrends?.historicalScores?.length || 0) > 0 ? (
       <View key="performance_trajectory" style={[styles.chartCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={[styles.cardHeader, { justifyContent: 'space-between' }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -278,9 +336,9 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
            Your accuracy landscape across all tracked subjects.
          </Text>
          <RadarChart 
-           data={Object.values(cumulativeHierarchy.subjects).map(s => ({
-             label: s.name.length > 10 ? s.name.substring(0, 8) + '..' : s.name,
-             value: s.accuracy
+           data={Object.values(visibleCumulativeHierarchy?.subjects || {}).map(s => ({
+             label: (s?.name || 'Unknown').length > 10 ? (s?.name || 'Unknown').substring(0, 8) + '..' : (s?.name || 'Unknown'),
+             value: s?.accuracy || 0
            }))} 
            size={220}
          />
@@ -457,7 +515,7 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         ) : (
           <View style={styles.drillList}>
             {drillDownItems.map((item, index) => {
-              const isRepeatedWeak = item.isSection && repeatedWeaknesses.includes(item.name);
+              const isRepeatedWeak = item.isSection && visibleRepeatedWeaknesses.includes(item.name);
               
               return (
                 <View key={`${item.name}-${index}`} style={[styles.drillItem, { borderBottomColor: colors.border + '50' }]}>
@@ -506,8 +564,8 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
               </TouchableOpacity>
               <TouchableOpacity 
                 onPress={() => {
-                  const last5 = trends.historicalScores.slice(-5).map(t => t.attemptIndex);
-                  setSelectedAttemptIndices(last5);
+                  const last5 = allSelectableScores.slice(-5).map(t => t?.attemptIndex).filter(Boolean);
+                  setSelectedAttemptIndices(last5.length > 0 ? last5 : null);
                 }}
                 style={[styles.actionChip, { backgroundColor: colors.bg, borderColor: colors.border }]}
               >
@@ -516,26 +574,29 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
             </View>
 
             <ScrollView contentContainerStyle={styles.modalList}>
-              {[...trends.historicalScores].reverse().map((t) => {
-                const isSelected = !selectedAttemptIndices || selectedAttemptIndices.includes(t.attemptIndex);
+              {[...allSelectableScores].reverse().map((t) => {
+                const attemptIndex = Number(t?.attemptIndex || 0);
+                const isSelected = !selectedAttemptIndices || selectedAttemptIndices.includes(attemptIndex);
                 return (
                   <TouchableOpacity 
-                    key={t.attemptIndex}
+                    key={attemptIndex}
                     style={[styles.testItem, { borderBottomColor: colors.border + '30' }]}
                     onPress={() => {
-                      const current = selectedAttemptIndices || trends.historicalScores.map(x => x.attemptIndex);
-                      if (current.includes(t.attemptIndex)) {
-                        const next = current.filter(idx => idx !== t.attemptIndex);
-                        setSelectedAttemptIndices(next.length === trends.historicalScores.length ? null : next);
+                      if (!attemptIndex) return;
+                      const allIndices = allSelectableScores.map(x => Number(x?.attemptIndex || 0)).filter(Boolean);
+                      const current = selectedAttemptIndices || allIndices;
+                      if (current.includes(attemptIndex)) {
+                        const next = current.filter(idx => idx !== attemptIndex);
+                        setSelectedAttemptIndices(next.length === allIndices.length ? null : next);
                       } else {
-                        const next = [...current, t.attemptIndex];
-                        setSelectedAttemptIndices(next.length === trends.historicalScores.length ? null : next);
+                        const next = [...current, attemptIndex];
+                        setSelectedAttemptIndices(next.length === allIndices.length ? null : next);
                       }
                     }}
                   >
                     <View>
-                      <Text style={[styles.testItemTitle, { color: colors.textPrimary }]}>Test Attempt #{t.attemptIndex}</Text>
-                      <Text style={[styles.testItemSub, { color: colors.textSecondary }]}>Score: {t.score} | Accuracy: {Math.round(t.accuracy)}%</Text>
+                      <Text style={[styles.testItemTitle, { color: colors.textPrimary }]}>Test Attempt #{attemptIndex}</Text>
+                      <Text style={[styles.testItemSub, { color: colors.textSecondary }]}>Score: {t?.score || 0} | Accuracy: {Math.round(t?.accuracy || 0)}%</Text>
                     </View>
                     <View style={[styles.checkbox, { borderColor: colors.primary, backgroundColor: isSelected ? colors.primary : 'transparent' }]}>
                       {isSelected && <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>✓</Text>}

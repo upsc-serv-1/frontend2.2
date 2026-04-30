@@ -229,6 +229,8 @@ export function useAggregateTestAnalytics(userId: string | null) {
   const [trends, setTrends] = useState<{ historicalScores: any[]; negativeMarkingTrends: any[] } | null>(null);
   const [cumulativeHierarchy, setCumulativeHierarchy] = useState<HierarchicalPerformance | null>(null);
   const [repeatedWeaknesses, setRepeatedWeaknesses] = useState<string[]>([]);
+  const [rawAllQuestions, setRawAllQuestions] = useState<QuestionAttempt[]>([]);
+  const [rawAttemptsForTrend, setRawAttemptsForTrend] = useState<any[]>([]);
 
   useEffect(() => {
     if (!userId) return;
@@ -242,7 +244,9 @@ export function useAggregateTestAnalytics(userId: string | null) {
           const parsed = JSON.parse(cached);
           setTrends(parsed.trends);
           setCumulativeHierarchy(parsed.cumulativeHierarchy);
-          setRepeatedWeaknesses(parsed.repeatedWeaknesses);
+          setRepeatedWeaknesses(parsed.repeatedWeaknesses || []);
+          setRawAllQuestions(parsed.rawAllQuestions || []);
+          setRawAttemptsForTrend(parsed.rawAttemptsForTrend || []);
           // If we have cache, we don't show the big loading spinner
           // but we still fetch in background to stay fresh
         } else {
@@ -268,6 +272,11 @@ export function useAggregateTestAnalytics(userId: string | null) {
         }
 
         if (!attempts || attempts.length === 0) {
+          setTrends(null);
+          setCumulativeHierarchy(null);
+          setRepeatedWeaknesses([]);
+          setRawAllQuestions([]);
+          setRawAttemptsForTrend([]);
           setLoading(false);
           return;
         }
@@ -324,12 +333,16 @@ export function useAggregateTestAnalytics(userId: string | null) {
         setTrends(newTrends);
         setCumulativeHierarchy(cumulative);
         setRepeatedWeaknesses(newRepeated);
+        setRawAllQuestions(allQuestions);
+        setRawAttemptsForTrend(attemptRowsForTrend);
 
         // Save to cache
         await AsyncStorage.setItem(cacheKey, JSON.stringify({
           trends: newTrends,
           cumulativeHierarchy: cumulative,
           repeatedWeaknesses: newRepeated,
+          rawAllQuestions: allQuestions,
+          rawAttemptsForTrend: attemptRowsForTrend,
           lastAttemptId,
           attemptsCount: attempts.length
         }));
@@ -345,5 +358,13 @@ export function useAggregateTestAnalytics(userId: string | null) {
     fetchAggregate();
   }, [userId]);
 
-  return { loading, error, trends, cumulativeHierarchy, repeatedWeaknesses };
+  return {
+    loading,
+    error,
+    trends,
+    cumulativeHierarchy,
+    repeatedWeaknesses,
+    rawAllQuestions,
+    rawAttemptsForTrend,
+  };
 }
