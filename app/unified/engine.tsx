@@ -1533,8 +1533,15 @@ export default function UnifiedQuizEngine() {
                <Flag size={18} color={answerData.isReview ? (isZenMode ? '#433422' : '#eab308') : (isZenMode ? '#43342240' : colors.textTertiary)} fill={answerData.isReview ? (isZenMode ? '#433422' : '#eab308') : 'transparent'} />
                {answerData.isReview && <Text style={{ fontSize: 10, fontWeight: '900', color: isZenMode ? '#433422' : '#a16207' }}>REVIEW</Text>}
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => toggleBookmark(item.id)}>
-               <Bookmark size={20} color={answerData.isBookmarked ? (isZenMode ? '#433422' : colors.primary) : (isZenMode ? '#43342240' : colors.textTertiary)} fill={answerData.isBookmarked ? (isZenMode ? '#433422' : colors.primary) : 'transparent'} />
+            <TouchableOpacity 
+              onPress={() => handleAddToFlashcards(item)}
+              disabled={!!savingFlashcard[item.id]}
+            >
+               {savingFlashcard[item.id] ? (
+                 <ActivityIndicator size="small" color={colors.primary} />
+               ) : (
+                 <Zap size={20} color={isZenMode ? '#43342240' : colors.textTertiary} />
+               )}
             </TouchableOpacity>
           </View>
         </View>
@@ -1572,23 +1579,6 @@ export default function UnifiedQuizEngine() {
             );
           })}
         </View>
-        
-        {arenaMode === 'learning' && (
-          <TouchableOpacity
-            style={[styles.quickFlashBtn, { backgroundColor: colors.primary + '12', borderColor: colors.primary + '35' }]}
-            onPress={() => handleAddToFlashcards(item)}
-            disabled={!!savingFlashcard[item.id]}
-          >
-            {!!savingFlashcard[item.id] ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <>
-                <Zap size={15} color={colors.primary} />
-                <Text style={[styles.quickFlashBtnText, { color: colors.primary }]}>Quick Add to Flashcard</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
 
         {arenaMode === 'learning' && !showExplanation && (
           <TouchableOpacity 
@@ -2722,20 +2712,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(67, 52, 34, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  quickFlashBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
-  },
-  quickFlashBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
   },
 });
 
