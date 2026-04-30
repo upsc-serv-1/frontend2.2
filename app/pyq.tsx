@@ -140,22 +140,20 @@ function StickyHeatmapTable({
                     <View key={`data-${row.key}`} style={[styles.heatmapDataRow, { borderBottomColor: colors.border + '55' }]}> 
                       {years.map((year) => {
                         const count = row.byYear[year] || 0;
-                        const ratio = count / maxOpacityDivisor;
+                        const cappedCount = Math.min(count, 22);
                         let bgColor = colors.surfaceStrong;
                         let textColor = colors.textTertiary;
                         let opacity = 1;
 
                         if (count > 0) {
-                          textColor = '#ffffff';
-                          if (count >= 18) bgColor = '#0c2c84'; // Deepest Blue
-                          else if (count >= 12) bgColor = '#225ea8'; // Dark Blue
-                          else if (count >= 8) bgColor = '#1d91c0'; // Medium Blue
-                          else if (count >= 5) bgColor = '#41b6c4'; // Light Blue
-                          else if (count >= 3) bgColor = '#7fcdbb'; // Aqua/Teal
-                          else {
-                            bgColor = '#edf8b1'; // Light Yellow-Green
-                            textColor = '#065f46'; // Dark green text for readability
-                          }
+                          // Interpolate Hue from 70 (Yellow-Green) to 225 (Deep Blue)
+                          // Interpolate Lightness from 85% to 30%
+                          const ratio = (cappedCount - 1) / 21;
+                          const h = 70 + (ratio * 155);
+                          const s = 65 + (ratio * 20);
+                          const l = 85 - (ratio * 55);
+                          bgColor = `hsl(${h}, ${s}%, ${l}%)`;
+                          textColor = l < 55 ? '#ffffff' : '#065f46';
                         } else {
                           opacity = 0.4;
                         }
@@ -877,18 +875,17 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
               <td>${esc(row.label)}</td>
               ${years.map(year => {
                 const count = row.byYear[year] || 0;
-                const ratio = count / divisor;
                 let bg = '#f8fafc';
                 let tc = '#94a3b8';
                 
                 if (count > 0) {
-                  tc = '#ffffff';
-                if (count >= 18) bg = '#0c2c84';
-                else if (count >= 12) bg = '#225ea8';
-                else if (count >= 8) bg = '#1d91c0';
-                else if (count >= 5) bg = '#41b6c4';
-                else if (count >= 3) bg = '#7fcdbb';
-                else { bg = '#edf8b1'; tc = '#065f46'; }
+                  const capped = Math.min(count, 22);
+                  const ratio = (capped - 1) / 21;
+                  const h = 70 + (ratio * 155);
+                  const s = 65 + (ratio * 20);
+                  const l = 85 - (ratio * 55);
+                  bg = `hsl(${h}, ${s}%, ${l}%)`;
+                  tc = l < 55 ? '#ffffff' : '#065f46';
                 }
                 return `<td style="background: ${bg} !important; color: ${tc} !important; border: 2px solid #fff !important; border-radius: 6px !important; font-weight:800; text-align:center; width: 44px; height: 32px;">${count || ''}</td>`;
               }).join('')}
