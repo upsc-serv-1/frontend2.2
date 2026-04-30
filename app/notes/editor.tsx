@@ -94,7 +94,19 @@ const RADIUS = {
   xxl: 24
 };
 
-const HIGHLIGHT_COLORS = ['transparent', '#FF6A88', '#6A5BFF', '#4FC3F7', '#81C784', '#FFB74D', '#BA68C8'];
+const HIGHLIGHT_COLORS = [
+  'transparent',
+  '#FF6A88',
+  '#6A5BFF',
+  '#4FC3F7',
+  '#81C784',
+  '#FFB74D',
+  '#BA68C8',
+  '#FFD54F',
+  '#80CBC4',
+  '#90CAF9',
+  '#EF9A9A',
+];
 
 export default function NoteEditor() {
   const { colors, isDark } = useTheme();
@@ -139,10 +151,18 @@ export default function NoteEditor() {
   const [insertSelection, setInsertSelection] = useState({ start: 0, end: 0 });
   const insertInputRef = useRef<TextInput>(null);
 
+  const normalizeEditorHtml = (txt: string) => {
+    if (!txt) return '';
+
+    return txt
+      .replace(/<span[^>]*text-decoration\s*:\s*underline;?[^>]*>(.*?)<\/span>/gi, '<u>$1</u>')
+      .replace(/<span[^>]*background-color\s*:\s*([^;"']+)[^>]*>(.*?)<\/span>/gi, '<mark style="background-color:$1">$2</mark>');
+  };
+
   // HELPER: Convert Markdown fallback to HTML if needed
   const formatContent = (txt: string) => {
     if (!txt) return '';
-    if (txt.includes('<') && txt.includes('>')) return txt;
+    if (txt.includes('<') && txt.includes('>')) return normalizeEditorHtml(txt);
     // Simple MD to HTML for legacy compatibility
     return txt
       .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
@@ -155,6 +175,8 @@ export default function NoteEditor() {
     strong: { fontWeight: 'bold' as const, color: colors.textPrimary },
     i: { fontStyle: 'italic' as const },
     em: { fontStyle: 'italic' as const },
+    u: { textDecorationLine: 'underline' as const },
+    ins: { textDecorationLine: 'underline' as const },
     mark: { backgroundColor: '#FFF59D', color: '#000' },
   };
 

@@ -4,7 +4,18 @@ import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Highlighter } from 'lucide-react-native';
 
-const HIGHLIGHT_COLORS = ['#FFF59D', '#FFB74D', '#81C784', '#4FC3F7', '#BA68C8', '#FF6A88'];
+const HIGHLIGHT_COLORS = [
+  '#FFF59D',
+  '#FFB74D',
+  '#81C784',
+  '#4FC3F7',
+  '#BA68C8',
+  '#FF6A88',
+  '#FFD54F',
+  '#80CBC4',
+  '#90CAF9',
+  '#EF9A9A',
+];
 const DEFAULT_COLOR_KEY = 'notes_editor_highlight_color';
 
 type Props = {
@@ -95,7 +106,7 @@ export default function RichNoteEditor({ html, onChange, themeColors }: Props) {
 }
 
 const s = StyleSheet.create({
-  picker: { flexDirection: 'row', gap: 8, padding: 8, borderTopWidth: 1, justifyContent: 'center' },
+  picker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8, borderTopWidth: 1, justifyContent: 'center' },
   swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
   hlIcon: { padding: 6, borderRadius: 6 },
 });
