@@ -432,36 +432,43 @@ export class FlashcardSvc {
 
     const newLapses = (cur.lapses ?? 0) + (sm.lapsed ? 1 : 0);
 
+    const updateData = {
+      ease_factor: sm.ease_factor,
+      interval_days: sm.interval_days,
+      repetitions: sm.repetitions,
+      next_review: sm.next_review.toISOString(),
+      last_reviewed: new Date().toISOString(),
+      last_quality: quality,
+      lapses: newLapses,
+      status: 'active',
+      learning_status: sm.status,
+      times_seen: Number(cur.times_seen ?? 0) + 1,
+      updated_at: new Date().toISOString(),
+    };
+
     const { error: upErr } = await supabase
       .from('user_cards')
-      .upsert({
+      .update(updateData)
+      .match({ user_id: userId, card_id: cardId });
+
+    if (upErr) {
+      console.error('[FlashcardSvc] Update error:', upErr);
+      throw upErr;
+    }
+
+    try {
+      await supabase.from('card_reviews').insert({
         user_id: userId,
         card_id: cardId,
-        ease_factor: sm.ease_factor,
-        interval_days: sm.interval_days,
-        repetitions: sm.repetitions,
-        next_review: sm.next_review.toISOString(),
-        last_reviewed: new Date().toISOString(),
-        last_quality: quality,
-        lapses: newLapses,
-        status: 'active',
-        learning_status: sm.status,
-        times_seen: Number(cur.times_seen ?? 0) + 1,
-        client_updated_at: new Date().toISOString(),
-        dirty: false,
-      }, { onConflict: 'user_id,card_id' });
-
-    if (upErr) throw upErr;
-
-    await supabase.from('card_reviews').insert({
-      user_id: userId,
-      card_id: cardId,
-      quality,
-      prev_interval: cur.interval_days,
-      new_interval: sm.interval_days,
-      prev_ef: cur.ease_factor,
-      new_ef: sm.ease_factor,
-    });
+        quality,
+        prev_interval: cur.interval_days,
+        new_interval: sm.interval_days,
+        prev_ef: cur.ease_factor,
+        new_ef: sm.ease_factor,
+      });
+    } catch (e) {
+      console.warn('[FlashcardSvc] Could not log review history:', e);
+    }
 
     return sm;
   }
