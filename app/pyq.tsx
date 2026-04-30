@@ -139,6 +139,7 @@ function StickyHeatmapTable({
                   {rows.map((row) => (
                     <View key={`data-${row.key}`} style={[styles.heatmapDataRow, { borderBottomColor: colors.border + '55' }]}> 
                       {years.map((year) => {
+                        const count = row.byYear[year] || 0;
                         const ratio = count / maxOpacityDivisor;
                         let bgColor = 'transparent';
                         let textColor = colors.textTertiary;
