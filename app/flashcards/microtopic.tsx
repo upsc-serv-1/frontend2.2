@@ -81,11 +81,19 @@ export default function MicrotopicModal() {
       console.log(`[FlashcardDeck] Cleaned Params: sub="${sSubject}", topic="${sTopic}", sec="${sSection}"`);
 
       // 1. Build Base Query
-      const baseQuery = supabase
+      let baseQuery = supabase
         .from('cards')
         .select('*')
-        .ilike('subject', sSubject)
-        .ilike('microtopic', sTopic);
+        .ilike('subject', sSubject);
+
+      // Only add specific filters if they are provided
+      if (sTopic) {
+        baseQuery = baseQuery.ilike('microtopic', sTopic);
+      }
+      
+      if (sSection && sSection !== 'General') {
+        baseQuery = baseQuery.ilike('section_group', sSection);
+      }
 
       const [baseRes, progRes] = await Promise.all([
         baseQuery,
@@ -292,8 +300,12 @@ export default function MicrotopicModal() {
             <ArrowLeft size={24} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
-            <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>{microtopic}</Text>
-            <Text style={[styles.headerSub, { color: colors.textTertiary }]}>{subject} • {section}</Text>
+            <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+              {microtopic || section || subject}
+            </Text>
+            <Text style={[styles.headerSub, { color: colors.textTertiary }]}>
+              {microtopic ? `${subject} • ${section}` : (section ? subject : 'All Topics')}
+            </Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddModalVisible(true)}>
             <Plus size={24} color={colors.primary} />

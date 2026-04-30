@@ -227,15 +227,20 @@ export default function FlashcardsDashboard() {
     }
   };
 
-  const openStudySession = (item: TreeItem) => {
-    const params: any = { mode: 'due' };
+  const openDeckView = (item: TreeItem) => {
+    const params: any = { subject: '', section: '', microtopic: '' };
     if (item.type === 'subject') {
       params.subject = item.name;
     } else if (item.type === 'section') {
       params.subject = item.id.split('|')[0];
       params.section = item.name;
+    } else if (item.type === 'microtopic') {
+      const parts = item.id.split('|');
+      params.subject = parts[0];
+      params.section = parts[1];
+      params.microtopic = item.name;
     }
-    router.push({ pathname: '/flashcards/review', params });
+    router.push({ pathname: '/flashcards/microtopic', params });
   };
 
   const renderHeatmap = () => {
@@ -312,16 +317,7 @@ export default function FlashcardsDashboard() {
 
           <TouchableOpacity 
             style={styles.nodeContent} 
-            onPress={() => {
-              if (isMicro) {
-                router.push({ 
-                  pathname: '/flashcards/microtopic', 
-                  params: { subject: item.id.split('|')[0], section: item.id.split('|')[1], microtopic: item.name } 
-                });
-              } else {
-                openStudySession(item);
-              }
-            }}
+            onPress={() => openDeckView(item)}
           >
             <Text style={[
               styles.nodeName, 
@@ -336,7 +332,7 @@ export default function FlashcardsDashboard() {
         </View>
       </View>
     );
-
+  };
 
   return (
     <PageWrapper>
