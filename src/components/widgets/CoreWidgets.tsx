@@ -146,15 +146,15 @@ export function WeakestSubjectWidget({ data, colors }: { data: WidgetData; color
         <ChevronRight color={colors.textTertiary} size={16} />
       </View>
       {weakest ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <Text style={[ws.subjectName, { color: colors.textPrimary }]}>{weakest.subject}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-            <Text style={[ws.bigNum, { color: '#ef4444', fontSize: 24 }]}>{weakest.accuracy}%</Text>
-            <Text style={[ws.tinyText, { color: colors.textTertiary }]}>({weakest.correct}/{weakest.total})</Text>
+        <View style={{ marginTop: 8 }}>
+          <Text style={[ws.subjectName, { color: colors.textPrimary, fontSize: 13 }]} numberOfLines={1}>{weakest.subject}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
+            <Text style={[ws.bigNum, { color: '#ef4444', fontSize: 20 }]}>{weakest.accuracy}%</Text>
+            <Text style={[ws.tinyText, { color: colors.textTertiary, fontSize: 10 }]}>({weakest.correct}/{weakest.total})</Text>
           </View>
         </View>
       ) : (
-        <Text style={{ color: colors.textTertiary, marginTop: 8 }}>No data yet — start practicing!</Text>
+        <Text style={{ color: colors.textTertiary, marginTop: 8, fontSize: 11 }}>No data yet</Text>
       )}
     </TouchableOpacity>
   );
@@ -170,13 +170,13 @@ export function StudyHeatmapWidget({ data, colors }: { data: any; colors: any })
         <TrendingUp color={colors.primary} size={18} />
         <Text style={[ws.cardTitle, { color: colors.textPrimary }]}>Study Consistency (12 Weeks)</Text>
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 12, justifyContent: 'center' }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 3, marginTop: 8, justifyContent: 'center' }}>
         {grid.map((d: any) => {
           const opacity = d.count === 0 ? 0.05 : d.count < 5 ? 0.3 : d.count < 15 ? 0.6 : 1;
           return (
             <View 
               key={d.day} 
-              style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: colors.primary, opacity }} 
+              style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: colors.primary, opacity }} 
             />
           );
         })}
@@ -205,16 +205,20 @@ export function SpeedMeterWidget({ data, colors }: { data: WidgetData; colors: a
 // can measure rows properly.
 export const ws = StyleSheet.create({
   card: {
-    borderRadius: 20,
+    borderRadius: 24, // Matches arenaCard/progressCard
     borderWidth: 1,
     padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 130,
+    minHeight: 140, // Consistent with dashboard items
     width: '100%',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  half: { width: '100%', minHeight: 130 },
-  full: { width: '100%', alignItems: 'stretch', minHeight: 150 },
+  half: { width: '100%', minHeight: 140 },
+  full: { width: '100%', alignItems: 'stretch', minHeight: 140 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, alignSelf: 'stretch' },
   cardTitle: { flex: 1, fontSize: 13, fontWeight: '800' },
   bigNum: { fontSize: 32, fontWeight: '900', letterSpacing: -1 },
@@ -225,10 +229,10 @@ export const ws = StyleSheet.create({
   ringBg: { position: 'absolute', width: 60, height: 60, borderRadius: 30, borderWidth: 5 },
   ringProgress: { position: 'absolute', width: 60, height: 60, borderRadius: 30, borderWidth: 5 },
   ringText: { fontSize: 20, fontWeight: '900' },
-  barChart: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 80, marginTop: 12, gap: 6, alignSelf: 'stretch' },
-  barCol: { flex: 1, alignItems: 'center', gap: 4 },
-  barBg: { width: '100%', height: 60, borderRadius: 4, overflow: 'hidden', justifyContent: 'flex-end' },
+  barChart: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 60, marginTop: 12, gap: 4, alignSelf: 'stretch' },
+  barCol: { flex: 1, alignItems: 'center', gap: 2 },
+  barBg: { width: '100%', height: 40, borderRadius: 4, overflow: 'hidden', justifyContent: 'flex-end' },
   barFill: { width: '100%', borderRadius: 4, minHeight: 2 },
-  barLabel: { fontSize: 9, fontWeight: '800' },
-  barVal: { fontSize: 8, fontWeight: '700' },
+  barLabel: { fontSize: 8, fontWeight: '800' },
+  barVal: { fontSize: 7, fontWeight: '700' },
 });

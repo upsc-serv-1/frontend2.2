@@ -458,6 +458,7 @@ export default function ReviewScreen() {
                                 optBg = '#ef444415';
                                 optBorder = '#ef4444';
                               }
+<<<<<<< Updated upstream
                             } else if (isSelected) {
                               optBg = `${colors.primary}10`;
                               optBorder = colors.primary;
@@ -516,6 +517,48 @@ export default function ReviewScreen() {
                         </>
                       );
                       })()}
+=======
+                            }}
+                            activeOpacity={0.8}
+                            style={{
+                              flexDirection: 'row',
+                              marginTop: 8,
+                              gap: 10,
+                              padding: 10,
+                              borderRadius: 14,
+                              borderWidth: 1.5,
+                              backgroundColor: optBg,
+                              borderColor: optBorder,
+                              minHeight: 48,
+                              alignItems: 'center'
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 14,
+                                backgroundColor: isSelected
+                                  ? (showCorrect ? (isCorrectOption ? '#22c55e' : '#ef4444') : colors.primary)
+                                  : colors.surfaceStrong,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Text style={{ fontWeight: '900', color: isSelected ? '#fff' : colors.textTertiary, fontSize: 13 }}>
+                                {k.toUpperCase()}
+                              </Text>
+                            </View>
+                            <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '500', lineHeight: (editorFontSize - 4) * 1.3 }}>
+                              {v as string}
+                            </Text>
+                          </TouchableOpacity>
+                        )
+                      })}
+                    </>
+                  )
+                })()}
+>>>>>>> Stashed changes
 
                     {currentCard.front_image_url && (
                       <Image source={{ uri: currentCard.front_image_url }} resizeMode="contain" style={{ width: '100%', height: 200, marginTop: 12, borderRadius: 8 }} />

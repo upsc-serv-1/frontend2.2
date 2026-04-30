@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, Pressable, Vibration, useWindowDimensions } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders } from 'lucide-react-native';
+import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders, X, Check } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
 import { radius, spacing } from '../../src/theme';
@@ -166,6 +167,7 @@ export default function Home() {
   const CARD_WIDTH = (windowWidth - spacing.lg * 2 - CARD_GAP) / 2;
 
   return (
+    <PageWrapper>
       <DraggableFlatList
         data={activeWidgets}
         keyExtractor={(item) => item.id}
@@ -177,8 +179,11 @@ export default function Home() {
         // PATCH 6: prevent runaway layout — every row is at least 140px,
         // virtualization remains correct, and there's no infinite blank line.
         windowSize={10}
-        initialNumToRender={8}
-        maxToRenderPerBatch={6}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        numColumns={2}
+        columnWrapperStyle={{ gap: CARD_GAP, marginBottom: CARD_GAP }}
+        key={2}
         ListEmptyComponent={() => (
           <View style={{ padding: 32, alignItems: 'center' }}>
             <Text style={{ color: colors.textTertiary, fontSize: 13 }}>
@@ -253,18 +258,7 @@ export default function Home() {
                </View>
             </View>
 
-            <TouchableOpacity style={[styles.arenaCard, { backgroundColor: colors.primary, shadowColor: colors.primary }]} onPress={() => router.push('/arena')}>
-               <View style={styles.arenaContent}>
-                  <View style={styles.arenaLeft}>
-                    <Zap color="#FFF" size={32} fill="#FFF" />
-                    <View style={{ marginLeft: 16 }}>
-                       <Text style={styles.arenaTitle}>Enter Unified Arena</Text>
-                       <Text style={styles.arenaSub}>Advanced Quiz Engine • All Modes</Text>
-                    </View>
-                  </View>
-                  <View style={styles.arenaRight}><ChevronRight color="#FFF" size={24} /></View>
-               </View>
-            </TouchableOpacity>
+
 
             <TouchableOpacity style={[styles.progressCard, { backgroundColor: colors.surface, borderColor: colors.border }]} activeOpacity={0.9} onPress={() => router.push('/tracker')} onLongPress={() => setConfigVisible(true)}>
               <View style={styles.progressHeader}>
@@ -316,9 +310,8 @@ export default function Home() {
               disabled={isActive}
               activeOpacity={0.9}
               style={{
-                marginBottom: 12,
-                // PATCH 6: explicit min-height so FlatList virtualizes correctly
-                minHeight: 140,
+                width: CARD_WIDTH,
+                // minHeight removed or reduced for grid
                 opacity: isActive ? 0.85 : 1,
               }}
             >
@@ -537,12 +530,7 @@ const styles = StyleSheet.create({
   promoTitle: { fontSize: 18, fontWeight: '800' },
   promoSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   promoBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginLeft: 16 },
-  arenaCard: { marginTop: 20, padding: 20, borderRadius: 24, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
-  arenaContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  arenaLeft: { flexDirection: 'row', alignItems: 'center' },
-  arenaTitle: { color: '#FFF', fontSize: 20, fontWeight: '900' },
-  arenaSub: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600', marginTop: 2 },
-  arenaRight: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+
   progressCard: { padding: 20, borderRadius: 24, borderWidth: 1, marginTop: 20 },
   progressHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

@@ -140,7 +140,7 @@ const DEFAULT_STUDY_TAGS = [
 
 // --- Sub-Components ---
 
-const OptionButton = ({ label, text, isSelected, isCorrect, isWrong, showResult, onSelect, disabled }: any) => {
+const OptionButton = ({ label, text, isSelected, isCorrect, isWrong, showResult, onSelect, disabled, fontSize }: any) => {
   const { colors } = useTheme();
   
   let borderColor = colors.border;
@@ -186,7 +186,7 @@ const OptionButton = ({ label, text, isSelected, isCorrect, isWrong, showResult,
           {label}
         </Text>
       </View>
-      <Text style={[styles.optionText, { color: textColor, fontWeight: (isCorrect && showResult) || isSelected ? '700' : '500' }]}>{text}</Text>
+      <Text style={[styles.optionText, { color: textColor, fontSize: fontSize - 1, lineHeight: (fontSize - 1) * 1.4, fontWeight: (isCorrect && showResult) || isSelected ? '700' : '500' }]}>{text}</Text>
       {showResult && isCorrect && <Check size={18} color="#22c55e" style={{ marginLeft: 'auto' }} />}
       {showResult && isWrong && <X size={18} color="#ef4444" style={{ marginLeft: 'auto' }} />}
     </TouchableOpacity>
@@ -1539,7 +1539,14 @@ export default function UnifiedQuizEngine() {
           </View>
         </View>
 
-        <Markdown style={{ body: { color: zenTextColor, fontSize: fontSize, lineHeight: fontSize * 1.5, fontWeight: '700' } }}>
+        <Markdown style={{ 
+          body: { color: zenTextColor, fontSize: fontSize, lineHeight: fontSize * 1.5, fontWeight: '700' },
+          paragraph: { color: zenTextColor, fontSize: fontSize, lineHeight: fontSize * 1.5, fontWeight: '700' },
+          list_item: { color: zenTextColor, fontSize: fontSize, lineHeight: fontSize * 1.5, fontWeight: '700' },
+          heading1: { color: zenTextColor, fontSize: fontSize + 2, fontWeight: '800' },
+          heading2: { color: zenTextColor, fontSize: fontSize + 1, fontWeight: '800' },
+          heading3: { color: zenTextColor, fontSize: fontSize, fontWeight: '800' },
+        }}>
           {item.statement_line || item.question_text}
         </Markdown>
 
@@ -1559,7 +1566,8 @@ export default function UnifiedQuizEngine() {
                 isWrong={isWrong}
                 showResult={arenaMode === 'learning' && !!answerData.selectedAnswer}
                 onSelect={() => handleOptionSelect(item.id, label)}
-                disabled={arenaMode === 'learning' && showExplanation}
+                disabled={arenaMode === 'learning' && !!answerData.selectedAnswer}
+                fontSize={fontSize}
               />
             );
           })}
@@ -1693,19 +1701,42 @@ export default function UnifiedQuizEngine() {
                              <Book size={12} color={colors.primary} />
                              <Text style={{ fontSize: 10, fontWeight: '900', color: colors.primary, letterSpacing: 1 }}>{expl.source.toUpperCase()}</Text>
                           </View>
-                          <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
+                          <Markdown style={{ 
+                            body: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5 },
+                            paragraph: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5, marginBottom: 10 },
+                            list_item: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5, marginBottom: 4 },
+                            heading1: { color: colors.textPrimary, fontSize: fontSize + 2, fontWeight: '800', marginBottom: 12 },
+                            heading2: { color: colors.textPrimary, fontSize: fontSize + 1, fontWeight: '800', marginBottom: 10 },
+                            heading3: { color: colors.textPrimary, fontSize: fontSize, fontWeight: '800', marginBottom: 8 },
+                            bullet_list: { marginBottom: 10 },
+                            ordered_list: { marginBottom: 10 }
+                          }}>
                             {expl.text || 'No text available.'}
                           </Markdown>
                         </View>
                       ))
                     ) : (
-                      <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
+                      <Markdown style={{ 
+                        body: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5 },
+                        paragraph: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5, marginBottom: 10 },
+                        list_item: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5, marginBottom: 4 },
+                        heading1: { color: colors.textPrimary, fontSize: fontSize + 2, fontWeight: '800', marginBottom: 12 },
+                        heading2: { color: colors.textPrimary, fontSize: fontSize + 1, fontWeight: '800', marginBottom: 10 },
+                        heading3: { color: colors.textPrimary, fontSize: fontSize, fontWeight: '800', marginBottom: 8 }
+                      }}>
                         {item.explanation_markdown || 'No explanation available.'}
                       </Markdown>
                     )
                   ) : (
                     // Single Source View
-                    <Markdown style={{ body: { color: colors.textSecondary, fontSize: fontSize - 2 } }}>
+                    <Markdown style={{ 
+                      body: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5 },
+                      paragraph: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5, marginBottom: 10 },
+                      list_item: { color: colors.textSecondary, fontSize: fontSize, lineHeight: fontSize * 1.5, marginBottom: 4 },
+                      heading1: { color: colors.textPrimary, fontSize: fontSize + 2, fontWeight: '800', marginBottom: 12 },
+                      heading2: { color: colors.textPrimary, fontSize: fontSize + 1, fontWeight: '800', marginBottom: 10 },
+                      heading3: { color: colors.textPrimary, fontSize: fontSize, fontWeight: '800', marginBottom: 8 }
+                    }}>
                       {item._explanations?.[activeExplIndex[item.id]]?.text || item.explanation_markdown || 'No explanation available.'}
                     </Markdown>
                   )}

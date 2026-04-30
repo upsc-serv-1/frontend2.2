@@ -1285,7 +1285,8 @@ export default function UnifiedArenaSetup() {
                               mode: arenaMode, 
                               view: viewMode, 
                               timer: timerMode,
-                              questionId: q.id // Pass specific ID
+                              resultIds: q._mergedIds?.join(',') || q.id,
+                              questionId: q.id 
                             }
                           });
                         }}
@@ -1454,10 +1455,17 @@ export default function UnifiedArenaSetup() {
                       key={q.id + '_full'}
                       onPress={() => {
                         setShowAllResultsModal(false);
-                        router.push({
-                          pathname: '/unified/engine',
-                          params: { testId: '', mode: arenaMode, view: viewMode, timer: timerMode, questionId: q.id }
-                        });
+                          router.push({
+                            pathname: '/unified/engine',
+                            params: { 
+                               testId: '', 
+                               mode: arenaMode, 
+                               view: viewMode, 
+                               timer: timerMode, 
+                               resultIds: q._mergedIds?.join(',') || q.id,
+                               questionId: q.id 
+                            }
+                          });
                       }}
                       style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                     >

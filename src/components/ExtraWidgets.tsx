@@ -70,14 +70,13 @@ export function RecentNotesWidget({ data, colors }: { data: WidgetData; colors: 
         <BookOpen color={colors.primary} size={18} />
         <Text style={[ws.cardTitle, { color: colors.textPrimary }]}>Recent Notes</Text>
       </View>
-      {data.recentNotes.length > 0 ? data.recentNotes.slice(0, 3).map(n => (
-        <TouchableOpacity key={n.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border + '30' }}
+      {data.recentNotes.length > 0 ? data.recentNotes.slice(0, 2).map(n => (
+        <TouchableOpacity key={n.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border + '30' }}
           onPress={() => router.push({ pathname: '/study/editor', params: { noteId: n.id } })}
         >
-          <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: colors.textPrimary }} numberOfLines={1}>{n.title || 'Untitled'}</Text>
-          <Text style={{ fontSize: 10, color: colors.textTertiary }}>{timeAgo(n.updated_at)}</Text>
+          <Text style={{ flex: 1, fontSize: 12, fontWeight: '700', color: colors.textPrimary }} numberOfLines={1}>{n.title || 'Untitled'}</Text>
         </TouchableOpacity>
-      )) : <Text style={{ color: colors.textTertiary, marginTop: 8, fontSize: 12 }}>No notebooks yet</Text>}
+      )) : <Text style={{ color: colors.textTertiary, marginTop: 8, fontSize: 11 }}>No notebooks yet</Text>}
     </View>
   );
 }
@@ -101,7 +100,6 @@ export function QuickPracticeWidget({ colors }: { colors: any }) {
   const items = [
     { label: 'Random 10', icon: '🎲', params: { mode: 'learning', subject: 'All', view: 'list' } },
     { label: 'PYQ Only', icon: '📜', params: { mode: 'learning', subject: 'All', pyqMaster: 'PYQ Only', view: 'list' } },
-    { label: 'Polity', icon: '🏛️', params: { mode: 'learning', subject: 'Polity', view: 'list' } },
   ];
   return (
     <View style={[ws.card, ws.full, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -144,14 +142,11 @@ export function LastTestWidget({ data, colors }: { data: WidgetData; colors: any
         <Text style={[ws.cardTitle, { color: colors.textPrimary }]}>Last Test</Text>
         <ChevronRight color={colors.textTertiary} size={16} />
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary }} numberOfLines={1}>{last.title || 'Untitled'}</Text>
-          <Text style={{ fontSize: 11, color: colors.textTertiary, marginTop: 2 }}>{timeAgo(last.submitted_at)}</Text>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={{ fontSize: 22, fontWeight: '900', color: pct >= 60 ? '#22c55e' : '#f59e0b' }}>{last.score}/{last.total}</Text>
-          <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textTertiary }}>{pct}%</Text>
+      <View style={{ marginTop: 8 }}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }} numberOfLines={1}>{last.title || 'Untitled'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
+           <Text style={{ fontSize: 20, fontWeight: '900', color: pct >= 60 ? '#22c55e' : '#f59e0b' }}>{last.score}/{last.total}</Text>
+           <Text style={{ fontSize: 10, fontWeight: '700', color: colors.textTertiary }}>{pct}%</Text>
         </View>
       </View>
     </TouchableOpacity>
