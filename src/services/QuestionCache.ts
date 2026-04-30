@@ -43,9 +43,20 @@ class QuestionCacheService {
   }
 
   /**
-   * Search across all locally cached questions
+   * Search across all locally cached questions with optional strict filtering
    */
-  async searchLocal(query: string, mode: 'Matching' | 'Exact', fields: string[] = ['Questions', 'Explanations']): Promise<CachedQuestion[]> {
+  async searchLocal(
+    query: string, 
+    mode: 'Matching' | 'Exact', 
+    fields: string[] = ['Questions', 'Explanations'],
+    filters?: { 
+      subjects?: string[]; 
+      sections?: string[]; 
+      microtopics?: string[];
+      pyqFilter?: string;
+      examStage?: string;
+    }
+  ): Promise<CachedQuestion[]> {
     const term = query.toLowerCase().trim();
     if (!term) return [];
 
@@ -62,6 +73,22 @@ class QuestionCacheService {
 
       const questions: CachedQuestion[] = JSON.parse(data);
       for (const q of questions) {
+        // 1. Strict Filters First (Optimization)
+        if (filters) {
+          if (filters.subjects?.length && !filters.subjects.includes(q.subject)) continue;
+          if (filters.sections?.length) {
+            const normalizedSection = q.section_group === null ? 'General' : q.section_group;
+            if (!filters.sections.includes(normalizedSection)) continue;
+          }
+          if (filters.microtopics?.length && !filters.microtopics.includes(q.micro_topic)) continue;
+          
+          if (filters.pyqFilter === 'PYQ Only' && !q.is_pyq) continue;
+          if (filters.pyqFilter === 'Non-PYQ' && q.is_pyq) continue;
+
+          if (filters.examStage && filters.examStage !== 'All' && q.exam_stage !== filters.examStage) continue;
+        }
+
+        // 2. Keyword Search
         const text = searchQuestions ? (q.question_text || "").toLowerCase() : "";
         const expl = searchExplanations ? (q.explanation_markdown || "").toLowerCase() : "";
 

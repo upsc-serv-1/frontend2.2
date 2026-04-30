@@ -81,22 +81,23 @@ export const GlobalSearchBar: React.FC<GlobalSearchBarProps> = ({
       if (query.trim().length > 1) {
         setLoadingInstant(true);
         try {
-          // 1. Local Search First
-          let localResults = await QuestionCache.searchLocal(query, 'Matching', searchFields);
+          // 1. Local Search First (with full filter enforcement)
+          let localResults = await QuestionCache.searchLocal(query, 'Matching', searchFields, {
+            subjects: selectedSubjects,
+            sections: selectedSections,
+            microtopics: selectedMicrotopics,
+            pyqFilter: pyqFilter,
+            examStage: examStage
+          });
           
-          // Apply strict filtering to local results
-          if (pyqFilter === 'PYQ Only') {
-            localResults = localResults.filter((r: any) => r.is_pyq);
-            if (pyqCategory.length > 0) {
-              localResults = localResults.filter((r: any) => {
-                if (pyqCategory.includes('UPSC') && r.is_upsc_cse) return true;
-                if (pyqCategory.includes('Allied') && r.is_allied) return true;
-                if (pyqCategory.includes('Others') && r.is_others) return true;
-                return false;
-              });
-            }
-          } else if (pyqFilter === 'Non-PYQ') {
-            localResults = localResults.filter((r: any) => !r.is_pyq);
+          // Apply strict categorization filtering to local results if needed
+          if (pyqFilter === 'PYQ Only' && pyqCategory.length > 0) {
+            localResults = localResults.filter((r: any) => {
+              if (pyqCategory.includes('UPSC') && r.is_upsc_cse) return true;
+              if (pyqCategory.includes('Allied') && r.is_allied) return true;
+              if (pyqCategory.includes('Others') && r.is_others) return true;
+              return false;
+            });
           }
 
           let results = [...localResults];

@@ -253,6 +253,17 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 
+      const hslToHex = (h: number, s: number, l: number) => {
+        const l_norm = l / 100;
+        const a = (s * Math.min(l_norm, 1 - l_norm)) / 100;
+        const f = (n: number) => {
+          const k = (n + h / 30) % 12;
+          const color = l_norm - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+          return Math.round(255 * color).toString(16).padStart(2, '0');
+        };
+        return `#${f(0)}${f(8)}${f(4)}`;
+      };
+
       const renderSimpleLine = (title: string, labels: string[], values: number[], color: string) => {
         if (!labels.length || !values.length) return '';
         const widthSvg = 960;
@@ -404,15 +415,16 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
                     ${lastTests.map((t, colIndex) => {
                       const mockVar = ((rowIndex + colIndex) % 3) * 10 - 10;
                       const cellAcc = Math.max(0, Math.min(100, item.accuracy + mockVar));
+                      const ratio = cellAcc / 100;
                       let bg = '#f8fafc';
                       let tc = '#64748b';
-                      if (cellAcc >= 90) { bg = '#14532d'; tc = '#fff'; }
-                      else if (cellAcc >= 75) { bg = '#15803d'; tc = '#fff'; }
-                      else if (cellAcc >= 60) { bg = '#4f46e5'; tc = '#fff'; }
-                      else if (cellAcc >= 45) { bg = '#f59e0b'; tc = '#fff'; }
-                      else if (cellAcc >= 30) { bg = '#f97316'; tc = '#fff'; }
-                      else if (cellAcc >= 15) { bg = '#ef4444'; tc = '#fff'; }
-                      else if (cellAcc > 0) { bg = '#991b1b'; tc = '#fff'; }
+                      if (cellAcc > 0) {
+                        const h = 70 + (ratio * 155);
+                        const s = 65 + (ratio * 20);
+                        const l = 85 - (ratio * 55);
+                        bg = hslToHex(h, s, l);
+                        tc = l < 55 ? '#ffffff' : '#065f46';
+                      }
                       return `<td style="background-color: ${bg} !important; color: ${tc} !important; text-align: center; font-weight: bold; border: 1px solid #fff;">${Math.round(cellAcc)}%</td>`;
                     }).join('')}
                   </tr>
@@ -740,15 +752,16 @@ export const AnalyseSection = ({ userId }: AnalyseSectionProps) => {
                   {filteredScores.slice(-5).map((t, colIndex) => {
                     const mockVariance = ((rowIndex + colIndex) % 3) * 10 - 10;
                     const cellAcc = Math.max(0, Math.min(100, item.accuracy + mockVariance));
-                    let bgColor = colors.border;
-                    let textColor = colors.textSecondary;
-                    if (cellAcc >= 90) { bgColor = '#14532d'; textColor = '#fff'; }
-                    else if (cellAcc >= 75) { bgColor = '#15803d'; textColor = '#fff'; }
-                    else if (cellAcc >= 60) { bgColor = colors.primary; textColor = '#fff'; }
-                    else if (cellAcc >= 45) { bgColor = '#f59e0b'; textColor = '#fff'; }
-                    else if (cellAcc >= 30) { bgColor = '#f97316'; textColor = '#fff'; }
-                    else if (cellAcc >= 15) { bgColor = '#ef4444'; textColor = '#fff'; }
-                    else if (cellAcc > 0) { bgColor = '#991b1b'; textColor = '#fff'; }
+                    const ratio = cellAcc / 100;
+                    let bgColor = colors.surfaceStrong;
+                    let textColor = colors.textTertiary;
+                    if (cellAcc > 0) {
+                      const h = 70 + (ratio * 155);
+                      const s = 65 + (ratio * 20);
+                      const l = 85 - (ratio * 55);
+                      bgColor = `hsl(${h}, ${s}%, ${l}%)`;
+                      textColor = l < 55 ? '#ffffff' : '#065f46';
+                    }
 
                     return (
                       <View key={`cell-${rowIndex}-${colIndex}`} style={[styles.heatmapCell, { backgroundColor: bgColor }]}>
