@@ -70,20 +70,22 @@ export default function MicrotopicModal() {
     if (!refreshing) setLoading(true);
     try {
       const userId = session!.user.id;
-      const sec = (section as string) || 'General';
+      const sSubject = Array.isArray(subject) ? subject[0] : (subject as string);
+      const sTopic = Array.isArray(microtopic) ? microtopic[0] : (microtopic as string);
+      const sSection = Array.isArray(section) ? section[0] : (section as string) || 'General';
 
-      console.log(`[FlashcardDeck] Loading for ${subject} > ${sec} > ${microtopic}`);
+      console.log(`[FlashcardDeck] Loading for ${sSubject} > ${sSection} > ${sTopic}`);
 
       // 1. Build Base Query
       let baseQuery = supabase
         .from('cards')
         .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes, section_group')
-        .ilike('subject', subject as string)
-        .ilike('microtopic', microtopic as string);
+        .ilike('subject', sSubject)
+        .ilike('microtopic', sTopic);
 
       // Apply section filter matching review.tsx logic
-      if (sec && sec !== 'General') {
-        baseQuery = baseQuery.ilike('section_group', sec);
+      if (sSection && sSection !== 'General') {
+        baseQuery = baseQuery.ilike('section_group', sSection);
       } else {
         // For 'General' or empty section, include NULLs and explicit 'General'
         baseQuery = baseQuery.or('section_group.is.null,section_group.ilike.General,section_group.eq.');
