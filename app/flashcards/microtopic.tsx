@@ -321,12 +321,29 @@ export default function MicrotopicModal() {
                   </Text>
                 </View>
 
+                {stats.due === 0 && (
+                  <View style={{ alignItems: 'center', marginBottom: 24, padding: 20, backgroundColor: colors.primary + '10', borderRadius: 24, borderWidth: 1, borderColor: colors.primary + '20' }}>
+                    <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                      <Check size={28} color="#fff" strokeWidth={3} />
+                    </View>
+                    <Text style={{ fontSize: 20, fontWeight: '900', color: colors.textPrimary, marginBottom: 8 }}>All done for now!</Text>
+                    <Text style={{ fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 18 }}>
+                      You've reviewed all scheduled cards. Check back later or add new ones to continue!
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity 
-                  style={[styles.studyBtn, { backgroundColor: colors.primary }]}
-                  onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section } })}
+                  style={[
+                    styles.studyBtn, 
+                    { backgroundColor: colors.primary },
+                    stats.due === 0 && { backgroundColor: colors.surfaceStrong, opacity: 0.6 }
+                  ]}
+                  disabled={stats.due === 0}
+                  onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section, mode: 'due' } })}
                 >
-                  <Play size={20} color="#fff" fill="#fff" />
-                  <Text style={styles.studyBtnText}>Study Cards</Text>
+                  <Play size={20} color={stats.due === 0 ? colors.textTertiary : "#fff"} fill={stats.due === 0 ? colors.textTertiary : "#fff"} />
+                  <Text style={[styles.studyBtnText, stats.due === 0 && { color: colors.textTertiary }]}>Study Cards</Text>
                 </TouchableOpacity>
               </View>
 
