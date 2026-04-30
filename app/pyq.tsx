@@ -654,13 +654,6 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
     }));
   }, [trendSubjects, years, heatmapData]);
 
-  const trendColorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    distributionData.forEach((item, index) => {
-      map[item.name] = TREND_PALETTE[index % TREND_PALETTE.length];
-    });
-    return map;
-  }, [distributionData]);
 
   const focusTrendSeries = useMemo(() => {
     const label =
