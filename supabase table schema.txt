@@ -55,7 +55,10 @@ CREATE TABLE cards (
   back_text text,
   front_image_url text,
   back_image_url text,
-  card_type text DEFAULT 'qa'::text
+  card_type text DEFAULT 'qa'::text,
+  institutes jsonb DEFAULT '[]'::jsonb,
+  merged_from jsonb DEFAULT '[]'::jsonb,
+  primary_institute text
 );
 
 CREATE TABLE draft_attempts (
@@ -64,6 +67,25 @@ CREATE TABLE draft_attempts (
   test_id text,
   payload jsonb DEFAULT '{}'::jsonb,
   updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE flashcard_branch_cards (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  branch_id uuid NOT NULL,
+  card_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE flashcard_branches (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  parent_id uuid,
+  is_archived boolean DEFAULT false,
+  is_deleted boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  sort_order integer DEFAULT 0
 );
 
 CREATE TABLE folders (
@@ -206,7 +228,10 @@ CREATE TABLE user_cards (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   last_quality smallint,
-  lapses integer DEFAULT 0
+  lapses integer DEFAULT 0,
+  client_updated_at timestamp with time zone DEFAULT now(),
+  dirty boolean DEFAULT false,
+  times_seen integer DEFAULT 0
 );
 
 CREATE TABLE user_note_nodes (
@@ -221,7 +246,8 @@ CREATE TABLE user_note_nodes (
   updated_at timestamp with time zone DEFAULT now(),
   is_pinned boolean DEFAULT false,
   color text,
-  icon text
+  icon text,
+  is_archived boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE user_notes (
@@ -271,4 +297,17 @@ CREATE TABLE users (
   id uuid NOT NULL,
   email text,
   created_at timestamp without time zone
+);
+
+CREATE TABLE v_deck_summary (
+  user_id uuid,
+  subject text,
+  section_group text,
+  microtopic text,
+  new_count bigint,
+  learning_count bigint,
+  mastered_count bigint,
+  leech_count bigint,
+  due_count bigint,
+  total_count bigint
 );
