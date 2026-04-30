@@ -214,6 +214,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
   }, []);
 
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [examStage, setExamStage] = useState('Prelims');
   const [selectedPaper, setSelectedPaper] = useState('GS Paper 1');
   const [selectedRange, setSelectedRange] = useState('Last 10 Years');
@@ -728,7 +729,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
       return;
     }
 
-    setLoading(true);
+    setExporting(true);
     try {
       const esc = (value: string | number) =>
       String(value ?? '')
@@ -1059,7 +1060,7 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
       console.error('PDF export failed', error);
       Alert.alert('Export failed', error?.message || 'Unable to export PDF right now.');
     } finally {
-      setLoading(false);
+      setExporting(false);
     }
   };
 
@@ -1434,6 +1435,16 @@ export default function PyqAnalysisTab({ isEmbedded }: { isEmbedded?: boolean })
           </Animated.View>
         )}
       </ScrollView>
+
+      {exporting && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }]}>
+          <View style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 20, alignItems: 'center', gap: 12 }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ color: colors.textPrimary, fontWeight: '800' }}>Generating PDF Report...</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>This may take a few seconds</Text>
+          </View>
+        </View>
+      )}
 
       <View style={[styles.tabBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         {[
