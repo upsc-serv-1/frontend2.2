@@ -387,107 +387,135 @@ export default function ReviewScreen() {
                       }
 
                       let options = (meta as any)?.options || currentCard.options || {};
-                      let rawText = (currentCard.front_text || currentCard.question_text || currentCard.question || '').trim();
-                      
-                      // REPAIR: If options are missing from metadata, try to extract them from rawText
-                      if (Object.keys(options).length === 0 && rawText) {
-                        // Improved regex to match multi-line options until the next (Letter) or end of string
-                        const optionRegex = /\(([A-D])\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g;
-                        let match;
-                        while ((match = optionRegex.exec(rawText)) !== null) {
-                          options[match[1].toLowerCase()] = match[2].trim();
+                      if (typeof options === 'string') {
+                        try {
+                          options = JSON.parse(options);
+                        } catch {
+                          options = {};
                         }
                       }
 
-                      const optionEntries = Object.entries(options).sort();
-                      
-                      // Strip extracted options from the displayed text to avoid double-printing
+                      if (Array.isArray(options)) {
+                        options = options.reduce((acc: Record<string, string>, value: any, idx: number) => {
+                          const key = String.fromCharCode(97 + idx); // a,b,c,d
+                          acc[key] = String(value ?? '').trim();
+                          return acc;
+                        }, {});
+                      }
+
+                      const normalizedOptions: Record<string, string> = Object.entries(options || {}).reduce(
+                        (acc: Record<string, string>, [k, v]) => {
+                          acc[String(k).trim().toLowerCase()] = String(v ?? '').trim();
+                          return acc;
+                        },
+                        {}
+                      );
+
+                      let rawText = (currentCard.front_text || currentCard.question_text || currentCard.question || '').trim();
+
+                      // REPAIR: If options are missing from metadata, try to extract them from rawText
+                      if (Object.keys(normalizedOptions).length === 0 && rawText) {
+                        const optionRegex = /\(([A-D])\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g;
+                        let match;
+                        while ((match = optionRegex.exec(rawText)) !== null) {
+                          normalizedOptions[match[1].toLowerCase()] = match[2].trim();
+                        }
+                      }
+
+                      const optionEntries = Object.entries(normalizedOptions).sort();
                       const cleanText = rawText
                         .replace(/\([A-D]\)\s+([\s\S]*?)(?=\s*\([A-D]\)|$)/g, '')
                         .trim();
 
                       return (
                         <>
-                          {/* Main Question Text */}
                           <Text style={[styles.cardText, { color: colors.textPrimary, fontSize: editorFontSize, lineHeight: editorFontSize * 1.5, marginBottom: 12 }]}>
                             {cleanText}
                           </Text>
 
-                          {/* Options Buttons */}
                           {optionEntries.map(([k, v]) => {
-                            const isSelected = selectedOption === k;
-                        // Support both single letter (A) or the full option key
-                        const correctKey = (currentCard.correct_answer || '').toLowerCase();
-                        const isCorrectOption = correctKey === k.toLowerCase() || correctKey.includes(k.toLowerCase());
-                        
-                        let optBg = colors.surface;
-                        let optBorder = colors.border;
+                            const optionKey = String(k).toLowerCase();
+                            const isSelected = selectedOption === optionKey;
+                            const correctKey = (
+                              currentCard.correct_answer ||
+                              (meta as any)?.correct_answer ||
+                              (meta as any)?.correctAnswer ||
+                              ''
+                            )
+                              .toString()
+                              .trim()
+                              .toLowerCase();
+                            const isCorrectOption = correctKey === optionKey || correctKey.includes(optionKey);
 
-                        if (showCorrect) {
-                          if (isCorrectOption) {
-                            optBg = '#22c55e15';
-                            optBorder = '#22c55e';
-                          } else if (isSelected) {
-                            optBg = '#ef444415';
-                            optBorder = '#ef4444';
-                          }
-                        } else if (isSelected) {
-                          optBg = `${colors.primary}10`;
-                          optBorder = colors.primary;
-                        }
+                            let optBg = colors.surface;
+                            let optBorder = colors.border;
 
-                        return (
-                          <TouchableOpacity
-                            key={k}
-                            onPress={() => {
-                              if (!isFlipped && !showCorrect) {
-                                setSelectedOption(k);
-                                setShowCorrect(true);
-                                if (isCorrectOption) {
-                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                                } else {
-                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-                                }
+                            if (showCorrect) {
+                              if (isCorrectOption) {
+                                optBg = '#22c55e15';
+                                optBorder = '#22c55e';
+                              } else if (isSelected) {
+                                optBg = '#ef444415';
+                                optBorder = '#ef4444';
                               }
-                            }}
-                            activeOpacity={0.8}
-                            style={{
-                              flexDirection: 'row',
-                              marginTop: 8,
-                              gap: 10,
-                              padding: 10,
-                              borderRadius: 14,
-                              borderWidth: 1.5,
-                              backgroundColor: optBg,
-                              borderColor: optBorder,
-                              minHeight: 48,
-                              alignItems: 'center'
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 28,
-                                height: 28,
-                                borderRadius: 14,
-                                backgroundColor: isSelected
-                                  ? (showCorrect ? (isCorrectOption ? '#22c55e' : '#ef4444') : colors.primary)
-                                  : colors.surfaceStrong,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <Text style={{ fontWeight: '900', color: isSelected ? '#fff' : colors.textTertiary, fontSize: 13 }}>
-                                {k.toUpperCase()}
-                              </Text>
-                            </View>
-                            <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '500', lineHeight: (editorFontSize - 4) * 1.3 }}>
-                              {v as string}
-                            </Text>
-                        )
-                      })}
-                    </>
-                  )
-                })()}
+                            } else if (isSelected) {
+                              optBg = `${colors.primary}10`;
+                              optBorder = colors.primary;
+                            }
+
+                            return (
+                              <TouchableOpacity
+                                key={optionKey}
+                                onPress={() => {
+                                  if (!isFlipped && !showCorrect) {
+                                    setSelectedOption(optionKey);
+                                    setShowCorrect(true);
+                                    if (isCorrectOption) {
+                                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                                    } else {
+                                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+                                    }
+                                  }
+                                }}
+                                activeOpacity={0.8}
+                                style={{
+                                  flexDirection: 'row',
+                                  marginTop: 8,
+                                  gap: 10,
+                                  padding: 10,
+                                  borderRadius: 14,
+                                  borderWidth: 1.5,
+                                  backgroundColor: optBg,
+                                  borderColor: optBorder,
+                                  minHeight: 48,
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <View
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    backgroundColor: isSelected
+                                      ? (showCorrect ? (isCorrectOption ? '#22c55e' : '#ef4444') : colors.primary)
+                                      : colors.surfaceStrong,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Text style={{ fontWeight: '900', color: isSelected ? '#fff' : colors.textTertiary, fontSize: 13 }}>
+                                    {optionKey.toUpperCase()}
+                                  </Text>
+                                </View>
+                                <Text style={{ flex: 1, color: colors.textPrimary, fontSize: editorFontSize - 4, fontWeight: isSelected ? '700' : '500', lineHeight: (editorFontSize - 4) * 1.3 }}>
+                                  {v as string}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </>
+                      );
+                      })()}
 
                     {currentCard.front_image_url && (
                       <Image source={{ uri: currentCard.front_image_url }} resizeMode="contain" style={{ width: '100%', height: 200, marginTop: 12, borderRadius: 8 }} />

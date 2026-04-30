@@ -3,7 +3,13 @@ import { applySM2 } from './sm2';
 import { FlashcardLocalCache } from './FlashcardLocalCache';
 
 export type CardSource =
-  | { kind: 'question'; question_id: string; options?: Record<string, string> }
+  | {
+      kind: 'question';
+      question_id: string;
+      options?: Record<string, string>;
+      correct_answer?: string | null;
+      explanation_markdown?: string | null;
+    }
   | { kind: 'note'; note_id: string; block_id?: string }
   | { kind: 'manual' };
 
@@ -132,19 +138,42 @@ export class FlashcardSvc {
 
   // ============ CREATE FROM QUIZ QUESTION (req #1, #2, #3) ============
   static async createFromQuestion(userId: string, q: any) {
-    const opts = q.options ?? q.question_options ?? {};
+    const rawOptions = q.options ?? q.question_options ?? {};
+    const parsedOptions = (() => {
+      if (typeof rawOptions === 'string') {
+        try {
+          return JSON.parse(rawOptions);
+        } catch {
+          return {};
+        }
+      }
+      return rawOptions;
+    })();
+
+    // Normalize options to a consistent object shape: { A: '...', B: '...' }
+    const opts: Record<string, string> = Array.isArray(parsedOptions)
+      ? parsedOptions.reduce((acc: Record<string, string>, value: any, idx: number) => {
+          const key = String.fromCharCode(65 + idx);
+          acc[key] = String(value ?? '').trim();
+          return acc;
+        }, {})
+      : Object.entries(parsedOptions || {}).reduce((acc: Record<string, string>, [k, v]) => {
+          acc[String(k).trim().toUpperCase()] = String(v ?? '').trim();
+          return acc;
+        }, {});
+
     const stmt = q.statement_line || (Array.isArray(q.statement_lines) ? q.statement_lines.join('\n') : q.statement_lines || '');
-    
+
     // Ensure we actually have options text to show
     const optionEntries = Object.entries(opts);
     const optionLines = optionEntries.length > 0
-      ? optionEntries.map(([k, v]) => `(${k.toUpperCase()}) ${v}`).join('\n')
+      ? optionEntries.map(([k, v]) => `(${k}) ${v}`).join('\n')
       : '';
 
     // Deduplicate question_text and stmt to avoid double-printing
     const qText = (q.question_text || q.questionText || '').trim();
     const sText = (stmt || '').trim();
-    
+
     const parts = [qText];
     if (sText && sText !== qText) {
       parts.push(sText);
@@ -155,9 +184,9 @@ export class FlashcardSvc {
       .join('\n\n')
       .trim();
 
-    const correctKey = q.correct_answer || q.correctAnswer;
+    const correctKey = (q.correct_answer || q.correctAnswer || '').toString().trim().toUpperCase();
     const correctText = correctKey && opts[correctKey]
-      ? `**Correct: (${correctKey.toUpperCase()})** ${opts[correctKey]}`
+      ? `**Correct: (${correctKey})** ${opts[correctKey]}`
       : '';
     const explanation = q.explanation_markdown || q.explanation || '';
     
@@ -172,11 +201,27 @@ export class FlashcardSvc {
     const sourceLine = `📍 ${instituteSrc.institute}${instituteSrc.year ? ` ${instituteSrc.year}` : ''}${instituteSrc.correct ? ` (Ans: ${instituteSrc.correct.toUpperCase()})` : ''}`;
     const back_text = [sourceLine, correctText, explanation].filter(Boolean).join('\n\n');
 
-    let card: { id: string; institutes?: any[]; merged_from?: any[]; back_text?: string } | null = null;
+    const sourcePayload: CardSource = {
+      kind: 'question',
+      question_id: q.id,
+      options: opts,
+      correct_answer: correctKey || null,
+      explanation_markdown: explanation || null,
+    };
+
+    let card: {
+      id: string;
+      institutes?: any[];
+      merged_from?: any[];
+      back_text?: string;
+      front_text?: string;
+      source?: any;
+    } | null = null;
+
     if (q.id) {
       const { data } = await supabase
         .from('cards')
-        .select('id, institutes, merged_from, back_text')
+        .select('id, institutes, merged_from, back_text, front_text, source')
         .eq('question_id', q.id)
         .maybeSingle();
       if (data) card = data as any;
@@ -187,25 +232,32 @@ export class FlashcardSvc {
       const alreadyPresent = existing.some((i: InstituteSource) =>
         i.institute === instituteSrc.institute && i.year === instituteSrc.year
       );
-      
+
       const shouldUpdateFront = !card.front_text || card.front_text.length < front_text.length;
+      const newInstitutes = alreadyPresent ? existing : [...existing, instituteSrc];
+      const mergedSource = { ...(card.source || {}), ...sourcePayload };
+
+      const updateData: any = {
+        source: mergedSource,
+      };
 
       if (!alreadyPresent || shouldUpdateFront) {
-        const newInstitutes = alreadyPresent ? existing : [...existing, instituteSrc];
         // Merge the source labels into the back text so they appear in the UI
-        const allSources = newInstitutes.map(i => `• ${i.institute}${i.year ? ` ${i.year}` : ''}${i.correct ? ` (${i.correct.toUpperCase()})` : ''}`).join('  ');
+        const allSources = newInstitutes
+          .map(i => `• ${i.institute}${i.year ? ` ${i.year}` : ''}${i.correct ? ` (${i.correct.toUpperCase()})` : ''}`)
+          .join('  ');
         const updatedBack = `**Merged Sources:**\n${allSources}\n\n${card.back_text || back_text}`;
 
-        await supabase.from('cards').update({
-          institutes: newInstitutes,
-          merged_from: alreadyPresent ? card.merged_from : [...(card.merged_from || []), q.id],
-          back_text: updatedBack,
-          front_text: shouldUpdateFront ? front_text : card.front_text,
-          answer_text: updatedBack,
-          question_text: shouldUpdateFront ? front_text : card.front_text,
-          source: { kind: 'question', question_id: q.id, options: opts } // REPAIR metadata
-        }).eq('id', card.id);
+        updateData.institutes = newInstitutes;
+        updateData.merged_from = alreadyPresent ? card.merged_from : [...(card.merged_from || []), q.id];
+        updateData.back_text = updatedBack;
+        updateData.front_text = shouldUpdateFront ? front_text : card.front_text;
+        updateData.answer_text = updatedBack;
+        updateData.question_text = shouldUpdateFront ? front_text : card.front_text;
       }
+
+      await supabase.from('cards').update(updateData).eq('id', card.id);
+
       await this.linkUserCard(userId, card.id);
       return card.id;
     }
@@ -220,7 +272,7 @@ export class FlashcardSvc {
         front_text,
         back_text,
         card_type: 'qa',
-        source: { kind: 'question', question_id: q.id, options: opts },
+        source: sourcePayload,
         test_id: q.test_id || q.testId || q.tests?.id || 'manual',
         correct_answer: correctKey,
         question_text: front_text,

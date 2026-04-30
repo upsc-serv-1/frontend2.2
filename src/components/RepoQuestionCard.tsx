@@ -62,6 +62,7 @@ export const RepoQuestionCard = ({ question, onUpdate, isZenMode }: RepoQuestion
         question_text: question.questionText,
         explanation_markdown: question.explanation,
         correct_answer: question.correctAnswer,
+        options: question.options,
         subject: question.subject,
         section_group: question.sectionGroup,
         micro_topic: question.microTopic,
