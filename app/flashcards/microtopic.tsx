@@ -70,16 +70,19 @@ export default function MicrotopicModal() {
     if (!refreshing) setLoading(true);
     try {
       const userId = session!.user.id;
-      const sSubject = Array.isArray(subject) ? subject[0] : (subject as string);
-      const sTopic = Array.isArray(microtopic) ? microtopic[0] : (microtopic as string);
-      const sSection = Array.isArray(section) ? section[0] : (section as string) || 'General';
+      const allParams = { subject, microtopic, section };
+      console.log('[FlashcardDeck] Raw Params:', JSON.stringify(allParams));
 
-      console.log(`[FlashcardDeck] Loading for ${sSubject} > ${sSection} > ${sTopic}`);
+      const sSubject = (Array.isArray(subject) ? subject[0] : (subject as string)) || '';
+      const sTopic = (Array.isArray(microtopic) ? microtopic[0] : (microtopic as string)) || '';
+      const sSection = (Array.isArray(section) ? section[0] : (section as string)) || 'General';
+
+      console.log(`[FlashcardDeck] Cleaned Params: sub="${sSubject}", topic="${sTopic}", sec="${sSection}"`);
 
       // 1. Build Base Query
       const baseQuery = supabase
         .from('cards')
-        .select('id, front_text, back_text, question_text, answer_text, front_image_url, created_at, institutes, section_group')
+        .select('*')
         .ilike('subject', sSubject)
         .ilike('microtopic', sTopic);
 
@@ -90,24 +93,19 @@ export default function MicrotopicModal() {
           .select('*')
           .eq('user_id', userId),
       ]);
+
+      if (baseRes.error) console.error('[FlashcardDeck] Base Query Error:', baseRes.error);
+      if (progRes.error) console.error('[FlashcardDeck] Prog Query Error:', progRes.error);
+
       const base = baseRes.data || [];
       const prog = progRes.data || [];
       
-      console.log(`[FlashcardDeck] Loaded ${base.length} base cards for sec=${sSection}, topic=${sTopic}`);
+      console.log(`[FlashcardDeck] DB Results: base=${base.length}, user_cards=${prog.length}`);
+      
       if (base.length === 0) {
-        console.log('[FlashcardDeck] Query was:', { 
-          subject: sSubject, 
-          microtopic: sTopic, 
-          section: sSection 
-        });
-        // Let's try a broader query to see if cards exist at all for this topic
-        const { data: allTopicCards } = await supabase
-          .from('cards')
-          .select('section_group')
-          .ilike('subject', sSubject)
-          .ilike('microtopic', sTopic)
-          .limit(5);
-        console.log('[FlashcardDeck] Broad topic check (top 5 section_groups):', allTopicCards?.map(c => c.section_group));
+        // Fallback check: list ANY microtopics for this subject to see casing/naming
+        const { data: topics } = await supabase.from('cards').select('microtopic').ilike('subject', sSubject).limit(10);
+        console.log(`[FlashcardDeck] Diagnostic: Top 10 topics for "${sSubject}":`, topics?.map(t => t.microtopic));
       }
 
       const progByCardId: Record<string, any> = {};
