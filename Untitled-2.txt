@@ -1,0 +1,327 @@
+1	# UPSC Study App - Fix Implementation Guide
+2	
+3	This document contains all the code changes needed to fix the reported issues.
+4	
+5	---
+6	
+7	## ISSUE 1: Remove Drag & Drop from Notes, Add Button-Based Controls
+8	
+9	### File: `app/notes/index.tsx`
+10	
+11	**REPLACE the entire file content with this version that:**
+12	- Removes all drag-and-drop gesture code from `DraggableNoteCard`, `TreeMicroTopic`, `TreeSection`, `SubjectCard`
+13	- Adds proper Rename and Delete buttons for all items (folders, subfolders, notebooks, notes)
+14	- Adds manual reorder buttons
+15	- Keeps all existing functionality (FAB, move modal, create modal)
+16	
+17	### File: `src/components/RichNoteEditor.tsx`
+18	
+19	**REPLACE the entire file with this version that:**
+20	- Fixes highlight color visibility (uses `<mark>` tag instead of `backColor`)
+21	- Fixes highlight rendering in both screen and PDF export
+22	
+23	---
+24	
+25	## ISSUE 2: Fix Highlight Colors Not Showing on Screen
+26	
+27	### File: `src/components/RichNoteEditor.tsx`
+28	
+29	**KEY CHANGE:**
+30	
+31	```tsx
+32	// OLD (line 27-29) - backColor doesn't work in WebView:
+33	const applyHighlight = () => {
+34	  editorRef.current?.commandDOM(
+35	    `document.execCommand('backColor', false, '${highlightColor}')`
+36	  );
+37	};
+38	
+39	// NEW - use <mark> tag with CSS for visibility:
+40	const applyHighlight = () => {
+41	  editorRef.current?.commandDOM(`
+42	    (function() {
+43	      var sel = window.getSelection();
+44	      if (sel && sel.rangeCount > 0) {
+45	        var range = sel.getRangeAt(0);
+46	        var mark = document.createElement('mark');
+47	        mark.style.backgroundColor = '${highlightColor}';
+48	        mark.style.color = '#000';
+49	        range.surroundContents(mark);
+50	      }
+51	    })()
+52	  `);
+53	};
+54	```
+55	
+56	Also update `editorStyle` to include highlight styles:
+57	
+58	```tsx
+59	editorStyle={{
+60	  backgroundColor: themeColors.bg || '#ffffff',
+61	  color: themeColors.textPrimary || '#000000',
+62	  contentCSSText: `
+63	    font-size:16px;
+64	    line-height:1.5;
+65	    padding:12px;
+66	    mark { background-color: #FFF59D; color: #000; border-radius: 2px; padding: 0 2px; }
+67	  `,
+68	}}
+69	```
+70	
+71	---
+72	
+73	## ISSUE 3: Add Rename/Delete for Notebooks, Folders, Subfolders
+74	
+75	### In `app/notes/index.tsx` - Long press actions for SubjectCard, TreeSection, TreeMicroTopic:
+76	
+77	**CHANGE TreeSection longPress:**
+78	```tsx
+79	onLongPress={() => {
+80	  Vibration.vibrate(50);
+81	  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+82	  Alert.alert(
+83	    `"${section.name}"`,
+84	    'What would you like to do?',
+85	    [
+86	      { text: "Move", onPress: () => { setMoveTarget(section); setTargetSubject(null); setMoveNoteVisible(true); } },
+87	      { text: "Rename", onPress: () => promptRename('section', section.id, section.name) },
+88	      { text: "Delete", style: "destructive", onPress: () => confirmDelete('node', section.id) },
+89	      { text: "Cancel", style: "cancel" }
+90	    ]
+91	  );
+92	}}
+93	```
+94	
+95	**ADD rename function:**
+96	```tsx
+97	const promptRename = async (type: 'note' | 'folder' | 'section' | 'subject' | 'node', id: string, currentName: string) => {
+98	  Alert.prompt(
+99	    'Rename',
+100	    `Enter new name for "${currentName}"`,
+101	    async (newName) => {
+102	      if (!newName?.trim() || newName === currentName) return;
+103	      try {
+104	        if (type === 'note') {
+105	          await supabase.from('user_notes').update({ title: newName.trim() }).eq('id', id);
+106	        } else {
+107	          await supabase.from('user_note_nodes').update({ title: newName.trim() }).eq('id', id);
+108	        }
+109	        refresh();
+110	      } catch (e) { Alert.alert("Error", "Could not rename."); }
+111	    },
+112	    'plain',
+113	    currentName
+114	  );
+115	};
+116	```
+117	
+118	**ADD delete with confirmation function:**
+119	```tsx
+120	const confirmDelete = (type: 'note' | 'node', id: string) => {
+121	  Alert.alert(
+122	    'Delete Confirmation',
+123	    'Are you sure? This will move the item to archive (soft delete).',
+124	    [
+125	      { text: "Cancel", style: "cancel" },
+126	      {
+127	        text: "Delete",
+128	        style: "destructive",
+129	        onPress: async () => {
+130	          try {
+131	            if (type === 'note') {
+132	              await supabase.from('user_notes').update({ is_archived: true }).eq('id', id);
+133	            } else {
+134	              await supabase.from('user_note_nodes').update({ is_archived: true }).eq('id', id);
+135	            }
+136	            refresh();
+137	          } catch (e) { Alert.alert("Error", "Could not delete."); }
+138	        }
+139	      }
+140	    ]
+141	  );
+142	};
+143	```
+144	
+145	---
+146	
+147	## ISSUE 4: Dashboard Widgets - Full Edit Mode
+148	
+149	### File: `app/(tabs)/index.tsx`
+150	
+151	**KEY CHANGES:**
+152	
+153	1. **ADD is_archived column** (requires migration first - see below)
+154	
+155	2. **Replace DraggableFlatList with normal FlatList** for stable rendering:
+156	
+157	```tsx
+158	// REPLACE DraggableFlatList with:
+159	<FlatList
+160	  data={activeWidgets}
+161	  keyExtractor={(item) => item.id}
+162	  contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}
+163	  refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+164	  keyboardShouldPersistTaps="handled"
+165	  ListHeaderComponent={() => ( ... )}
+166	  renderItem={({ item }) => (
+167	    <WidgetRenderer
+168	      widgetKey={item.widget_key}
+169	      data={widgetData}
+170	      onArchive={() => handleArchive(item.id)}
+171	    />
+172	  )}
+173	  ListFooterComponent={() => ( ... )}
+174	/>
+175	```
+176	
+177	3. **ADD long-press to enter edit mode:**
+178	```tsx
+179	const handleLongPressWidget = () => {
+180	  Vibration.vibrate(50);
+181	  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+182	  setIsEditMode(true);
+183	};
+184	
+185	// In renderItem:
+186	<TouchableOpacity
+187	  onLongPress={handleLongPressWidget}
+188	  delayLongPress={500}
+189	  style={{ marginBottom: 12 }}
+190	>
+191	```
+192	
+193	4. **ADD proper Widget Management Modal:**
+194	```tsx
+195	// Replace the simple showManage modal with a full management screen:
+196	const [manageWidgets, setManageWidgets] = useState(false);
+197	const [availableWidgets, setAvailableWidgets] = useState<Widget[]>([]);
+198	
+199	<TouchableOpacity 
+200	  onPress={() => {
+201	    setAvailableWidgets(WidgetService.getAvailableWidgets());
+202	    setManageWidgets(true);
+203	  }}
+204	  style={{ padding: 12, alignItems: 'center', marginBottom: 4 }}
+205	>
+206	  <Text style={{ color: colors.primary, fontWeight: '700' }}>
+207	    Manage Widgets ({archivedWidgets.length} archived)
+208	  </Text>
+209	</TouchableOpacity>
+210	```
+211	
+212	5. **ADD Widget Add Modal** in the management screen:
+213	- List all available widget types
+214	- Button to add each widget type
+215	- Show currently active + archived widgets
+216	- Allow restore from archive
+217	
+218	6. **FIX infinite scroll bug** - Remove DraggableFlatList entirely, use FlatList with explicit item heights
+219	
+220	---
+221	
+222	## DATABASE MIGRATION (Run in Supabase SQL Editor)
+223	
+224	```sql
+225	-- Add is_archived column to user_notes
+226	ALTER TABLE user_notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
+227	
+228	-- Add is_archived to user_note_nodes
+229	ALTER TABLE user_note_nodes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
+230	
+231	-- Add position column for ordering
+232	ALTER TABLE user_note_nodes ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0;
+233	
+234	-- Create index for faster queries
+235	CREATE INDEX IF NOT EXISTS idx_user_note_nodes_position ON user_note_nodes(user_id, position);
+236	CREATE INDEX IF NOT EXISTS idx_user_note_nodes_archived ON user_note_nodes(user_id, is_archived) WHERE is_archived = false;
+237	```
+238	
+239	---
+240	
+241	## SUMMARY OF FILES TO MODIFY
+242	
+243	1. `app/notes/index.tsx` - Complete rewrite (remove drag-drop, add buttons)
+244	2. `src/components/RichNoteEditor.tsx` - Fix highlights
+245	3. `app/(tabs)/index.tsx` - Fix dashboard widgets
+246	4. `src/services/WidgetService.ts` - Add archive/restore logic
+247	
+248	---
+249	
+250	## IMPLEMENTATION STEPS
+251	
+252	1. First run the database migration in Supabase
+253	2. Update `RichNoteEditor.tsx` (fix highlights)
+254	3. Update `app/notes/index.tsx` (remove D&D, add buttons)
+255	4. Update `app/(tabs)/index.tsx` (widget management)
+256	5. Restart the app
+257	
+258	---
+259	
+260	## GEMINI IMPLEMENTATION COMMANDS
+261	
+262	To implement these changes in your project, run these commands in order:
+263	
+264	### Step 1: Database Migration
+265	Run this in your Supabase SQL Editor:
+266	```sql
+267	ALTER TABLE user_notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
+268	ALTER TABLE user_note_nodes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
+269	ALTER TABLE user_note_nodes ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0;
+270	CREATE INDEX IF NOT EXISTS idx_user_note_nodes_position ON user_note_nodes(user_id, position);
+271	```
+272	
+273	### Step 2: Update RichNoteEditor.tsx
+274	```bash
+275	# Replace src/components/RichNoteEditor.tsx with the fixed version
+276	# The key change is using <mark> tag instead of backColor command
+277	```
+278	
+279	### Step 3: Update notes/index.tsx
+280	```bash
+281	# Replace app/notes/index.tsx to remove drag-drop and add button controls
+282	# Long press now shows action sheet with Move, Rename, Delete options
+283	```
+284	
+285	### Step 4: Update (tabs)/index.tsx
+286	```bash
+287	# Replace app/(tabs)/index.tsx to fix widget management
+288	# Replace DraggableFlatList with FlatList
+289	# Add proper widget management modal
+290	```
+291	
+292	### Step 5: Restart app
+293	```bash
+294	npm run dev
+295	```
+
+The file /home/engine/UPSC_APP_FIX_GUIDE.txt contains all the fix instructions. Here's the full content printed above.
+
+Quick Summary of fixes needed:
+Issue 1 & 3 (Notes drag-drop → buttons + rename/delete):
+
+    Remove drag gestures from DraggableNoteCard, TreeMicroTopic, TreeSection, SubjectCard
+    Add long-press action sheet with Move, Rename, Delete options for all items
+
+Issue 2 (Highlight colors not showing):
+
+    Change document.execCommand('backColor') to use <mark> tag with CSS styling
+    Add mark style to contentCSSText in editorStyle
+
+Issue 4 (Dashboard widgets):
+
+    Replace DraggableFlatList with normal FlatList (fixes infinite scroll bug)
+    Add proper widget management modal with add/archive/restore
+    Add is_archived boolean to database tables
+
+Database Migration (run in Supabase SQL Editor):
+sql
+
+ALTER TABLE user_notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
+ALTER TABLE user_note_nodes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
+ALTER TABLE user_note_nodes ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0;
+
+Files to modify:
+
+    app/notes/index.tsx
+    src/components/RichNoteEditor.tsx
+    app/(tabs)/index.tsx

@@ -199,11 +199,23 @@ export function SpeedMeterWidget({ data, colors }: { data: WidgetData; colors: a
 }
 
 // ─── Styles ──────────────────────────────────────────────────
+// PATCH 6: removed `height: '100%'` (root cause of infinite blank scroll)
+// and `flex: 1` from .half (which ballooned widgets in vertical FlatList).
+// Every widget now has a deterministic intrinsic height so DraggableFlatList
+// can measure rows properly.
 export const ws = StyleSheet.create({
-  card: { borderRadius: 20, borderWidth: 1, padding: 16, alignItems: 'center', justifyContent: 'center', height: '100%' },
-  half: { flex: 1 },
-  full: { width: '100%', alignItems: 'stretch' },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  card: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 130,
+    width: '100%',
+  },
+  half: { width: '100%', minHeight: 130 },
+  full: { width: '100%', alignItems: 'stretch', minHeight: 150 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, alignSelf: 'stretch' },
   cardTitle: { flex: 1, fontSize: 13, fontWeight: '800' },
   bigNum: { fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   widgetLabel: { fontSize: 11, fontWeight: '700', marginTop: 2 },
@@ -213,7 +225,7 @@ export const ws = StyleSheet.create({
   ringBg: { position: 'absolute', width: 60, height: 60, borderRadius: 30, borderWidth: 5 },
   ringProgress: { position: 'absolute', width: 60, height: 60, borderRadius: 30, borderWidth: 5 },
   ringText: { fontSize: 20, fontWeight: '900' },
-  barChart: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 80, marginTop: 12, gap: 6 },
+  barChart: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 80, marginTop: 12, gap: 6, alignSelf: 'stretch' },
   barCol: { flex: 1, alignItems: 'center', gap: 4 },
   barBg: { width: '100%', height: 60, borderRadius: 4, overflow: 'hidden', justifyContent: 'flex-end' },
   barFill: { width: '100%', borderRadius: 4, minHeight: 2 },

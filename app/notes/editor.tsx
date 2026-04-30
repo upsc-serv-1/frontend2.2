@@ -179,7 +179,8 @@ export default function NoteEditor() {
     u: { textDecorationLine: 'underline' as const, textDecorationColor: colors.textPrimary, textDecorationStyle: 'solid' as const },
     ins: { textDecorationLine: 'underline' as const },
     span: { color: colors.textPrimary },
-    mark: { color: colors.textPrimary, paddingHorizontal: 2 },
+    // PATCH 3: <mark> rendered with a vivid yellow that survives dark / zen
+    mark: { backgroundColor: '#FFE066', color: '#000', paddingHorizontal: 2, borderRadius: 3 },
   };
 
   const onBlockLongPress = (item: any, index: number) => {
@@ -855,11 +856,23 @@ export default function NoteEditor() {
                   onLongPress={() => onBlockLongPress(item, idx)}
                 >
                 <LinearGradient
-                  colors={isActuallyEditing ? [colors.surface || '#ffffff', colors.surface || '#ffffff'] : [(item.color || colors.primary || '#6366f1') + '20', colors.surface || '#ffffff']}
+                  // PATCH 3: keep colour visible in BOTH editing & view modes (and zen)
+                  colors={
+                    isActuallyEditing
+                      ? [(item.color || colors.primary || '#6366f1') + '22', colors.surface || '#ffffff']
+                      : [(item.color || colors.primary || '#6366f1') + '55', (item.color || colors.primary || '#6366f1') + '15']
+                  }
                   locations={[0, 1]}
                   start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={[styles.highlightCard, { borderColor: isActuallyEditing ? colors.border : (item.color || colors.primary) + '40', borderLeftColor: item.color || colors.primary, borderLeftWidth: 4 }]}
+                  end={{ x: 1, y: 1 }}
+                  style={[
+                    styles.highlightCard,
+                    {
+                      borderColor: (item.color || colors.primary) + '70',
+                      borderLeftColor: item.color || colors.primary,
+                      borderLeftWidth: 6,
+                    },
+                  ]}
                 >
                   <RenderHtml 
                     source={{ html: formatContent(item.text) || '<i>Point content...</i>' }} 
@@ -881,29 +894,32 @@ export default function NoteEditor() {
                 
                 {isActuallyEditing && showColorPicker === idx && (
                   <View style={styles.popoverPicker}>
-                    {HIGHLIGHT_COLORS.map(c => (
-                      <TouchableOpacity 
-                        key={c} 
-                        style={[
-                          styles.colorBubble, 
-                          { 
-                            backgroundColor: c === 'transparent' ? colors.surface : c,
-                            borderWidth: c === 'transparent' ? 1 : 0,
-                            borderColor: colors.border,
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }
-                        ]} 
-                        onPress={() => {
-                          const next = [...items];
-                          next[idx] = { ...next[idx], color: c === 'transparent' ? undefined : c };
-                          setItems(next);
-                          setShowColorPicker(null);
-                        }}
-                      >
-                        {c === 'transparent' && <X size={12} color={colors.textTertiary} />}
-                      </TouchableOpacity>
-                    ))}
+                    {HIGHLIGHT_COLORS.map(c => {
+                      const isActive = (c === 'transparent' && !item.color) || c === item.color;
+                      return (
+                        <TouchableOpacity
+                          key={c}
+                          style={[
+                            styles.colorBubble,
+                            {
+                              backgroundColor: c === 'transparent' ? colors.surface : c,
+                              borderWidth: isActive ? 3 : (c === 'transparent' ? 1 : 0),
+                              borderColor: isActive ? colors.primary : colors.border,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            },
+                          ]}
+                          onPress={() => {
+                            const next = [...items];
+                            next[idx] = { ...next[idx], color: c === 'transparent' ? undefined : c };
+                            setItems(next);
+                            setShowColorPicker(null);
+                          }}
+                        >
+                          {c === 'transparent' && <X size={12} color={colors.textTertiary} />}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 )}
               </Pressable>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, Pressable, FlatList, Vibration, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, Pressable, Vibration, useWindowDimensions } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders } from 'lucide-react-native';
@@ -11,9 +11,8 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { SyllabusService } from '../../src/services/SyllabusService';
 import { MICRO_SYLLABUS, OPTIONAL_SUBJECTS } from '../../src/data/syllabus';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Check, X, Settings } from 'lucide-react-native';
 import { Alert } from 'react-native';
+import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { WidgetService, Widget } from '../../src/services/WidgetService';
 import { useWidgetData } from '../../src/hooks/useWidgetData';
 import { WidgetRenderer } from '../../src/components/widgets/WidgetRenderer';
@@ -138,31 +137,55 @@ export default function Home() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
   const onRefresh = async () => { setRefreshing(true); await load(); refreshWidgets(); setRefreshing(false); };
 
+  // PATCH 6: 4-second long press is undiscoverable. Keep it as a power-user
+  // shortcut but also expose a tappable "Edit" pill in the header.
   const handleLongPressIn = () => {
     longPressTimer.current = setTimeout(() => {
       Vibration.vibrate(50);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setIsEditMode(true);
-    }, 3000);
+    }, 800);
   };
   const handleLongPressOut = () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+  const toggleEditMode = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setIsEditMode(prev => !prev);
+  };
 
   const handleArchive = async (id: string) => {
     await WidgetService.archive(userId!, id);
     setWidgets(prev => prev.map(w => w.id === id ? { ...w, is_archived: true } : w));
   };
 
+  const handleReorder = async ({ data }: { data: Widget[] }) => {
+    setWidgets(data);
+    await WidgetService.reorder(userId!, data.map(w => w.id));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  };
+
   const CARD_GAP = 12;
   const CARD_WIDTH = (windowWidth - spacing.lg * 2 - CARD_GAP) / 2;
 
   return (
-    <PageWrapper>
-      <FlatList
+      <DraggableFlatList
         data={activeWidgets}
         keyExtractor={(item) => item.id}
+        onDragEnd={handleReorder}
+        activationDistance={10}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         keyboardShouldPersistTaps="handled"
+        // PATCH 6: prevent runaway layout — every row is at least 140px,
+        // virtualization remains correct, and there's no infinite blank line.
+        windowSize={10}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        ListEmptyComponent={() => (
+          <View style={{ padding: 32, alignItems: 'center' }}>
+            <Text style={{ color: colors.textTertiary, fontSize: 13 }}>
+              All widgets archived. Tap "Manage Widgets" below to restore.
+            </Text>
+          </View>
+        )}
         ListHeaderComponent={() => (
           <>
             <Pressable onPressIn={handleLongPressIn} onPressOut={handleLongPressOut} style={styles.topRow}>
@@ -171,15 +194,35 @@ export default function Home() {
                 <Text style={[styles.h1, { color: colors.textPrimary }]}>{name}.</Text>
               </View>
               {isEditMode ? (
-                <TouchableOpacity onPress={() => setIsEditMode(false)} style={[styles.doneBtn, { backgroundColor: colors.primary }]}>
+                <TouchableOpacity onPress={toggleEditMode} style={[styles.doneBtn, { backgroundColor: colors.primary }]}>
                   <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>Done</Text>
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity onPress={() => router.push('/profile')} style={styles.avatarBtn}>
-                  <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.avatarText}>{(name[0] || 'A').toUpperCase()}</Text>
-                  </View>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {/* PATCH 6: discoverable Edit button */}
+                  <TouchableOpacity
+                    onPress={toggleEditMode}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 16,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Sliders size={14} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => router.push('/profile')} style={styles.avatarBtn}>
+                    <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+                      <Text style={styles.avatarText}>{(name[0] || 'A').toUpperCase()}</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
               )}
             </Pressable>
             
@@ -265,10 +308,50 @@ export default function Home() {
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>MY WIDGETS</Text>
           </>
         )}
-        renderItem={({ item }) => (
-          <TouchableOpacity onLongPress={() => setIsEditMode(true)} delayLongPress={500} style={{ marginBottom: 12 }}>
-            <WidgetRenderer widgetKey={item.widget_key} data={widgetData} onArchive={() => handleArchive(item.id)} />
-          </TouchableOpacity>
+        renderItem={({ item, drag, isActive }) => (
+          <ScaleDecorator>
+            <TouchableOpacity
+              onLongPress={isEditMode ? drag : undefined}
+              delayLongPress={200}
+              disabled={isActive}
+              activeOpacity={0.9}
+              style={{
+                marginBottom: 12,
+                // PATCH 6: explicit min-height so FlatList virtualizes correctly
+                minHeight: 140,
+                opacity: isActive ? 0.85 : 1,
+              }}
+            >
+              <View style={{ position: 'relative' }}>
+                <WidgetRenderer
+                  widgetKey={item.widget_key}
+                  data={widgetData}
+                  // PATCH 6: archive only available in edit mode
+                  onArchive={isEditMode ? () => handleArchive(item.id) : undefined}
+                />
+                {isEditMode && (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      bottom: 8,
+                      right: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 10,
+                      backgroundColor: colors.primary,
+                    }}
+                  >
+                    <GripVertical size={12} color="#fff" />
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>HOLD TO DRAG</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          </ScaleDecorator>
         )}
         ListFooterComponent={() => (
           <>
@@ -300,15 +383,24 @@ export default function Home() {
                       <Text style={{ color: colors.textTertiary, textAlign: 'center', padding: 24 }}>No archived widgets.</Text>
                     ) : (
                       archivedWidgets.map(w => (
-                        <TouchableOpacity key={w.id} style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
-                          onPress={async () => {
-                            await WidgetService.restore(userId!, w.id);
-                            setWidgets(prev => prev.map(x => x.id === w.id ? { ...x, is_archived: false } : x));
-                          }}
+                        <View
+                          key={w.id}
+                          style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, gap: 12 }}
                         >
-                          <Text style={{ color: colors.textPrimary }}>{w.widget_key}</Text>
-                          <Text style={{ color: colors.primary, fontWeight: '700' }}>RESTORE</Text>
-                        </TouchableOpacity>
+                          <Text style={{ color: colors.textPrimary, flex: 1 }}>
+                            {w.widget_key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              await WidgetService.restore(userId!, w.id);
+                              setWidgets(prev => prev.map(x => x.id === w.id ? { ...x, is_archived: false } : x));
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                            }}
+                            style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.primary + '15' }}
+                          >
+                            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>RESTORE</Text>
+                          </TouchableOpacity>
+                        </View>
                       ))
                     )}
                   </ScrollView>

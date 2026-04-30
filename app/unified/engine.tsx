@@ -2428,31 +2428,43 @@ const NotebookModal = (props: any) => {
               </View>
             </View>
 
-            <ScrollView style={{ flex: 1, padding: 20 }}>
-              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border + '50' }}>
-                <TouchableOpacity 
-                  onPress={() => props.applyFormatting('bold')}
-                  style={{ flex: 1, height: 44, backgroundColor: colors.surfaceStrong, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-                >
-                  <Bold size={18} color={colors.textPrimary} />
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary }}>BOLD</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={() => props.applyFormatting('italic')}
-                  style={{ flex: 1, height: 44, backgroundColor: colors.surfaceStrong, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-                >
-                  <Italic size={18} color={colors.textPrimary} />
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary }}>ITALIC</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={() => props.applyFormatting('highlight')}
-                  style={{ flex: 1, height: 44, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-                >
-                  <Highlighter size={18} color={colors.primary} />
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary }}>MARK</Text>
-                </TouchableOpacity>
-              </View>
+            {/* PATCH 4: STICKY formatting toolbar — lives OUTSIDE the ScrollView so it never hides */}
+            <View
+              style={{
+                flexDirection: 'row',
+                gap: 10,
+                paddingHorizontal: 20,
+                paddingTop: 16,
+                paddingBottom: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border + '50',
+                backgroundColor: colors.surface,
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => props.applyFormatting('bold')}
+                style={{ flex: 1, height: 44, backgroundColor: colors.surfaceStrong, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+              >
+                <Bold size={18} color={colors.textPrimary} />
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary }}>BOLD</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => props.applyFormatting('italic')}
+                style={{ flex: 1, height: 44, backgroundColor: colors.surfaceStrong, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+              >
+                <Italic size={18} color={colors.textPrimary} />
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary }}>ITALIC</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => props.applyFormatting('highlight')}
+                style={{ flex: 1, height: 44, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+              >
+                <Highlighter size={18} color={colors.primary} />
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary }}>MARK</Text>
+              </TouchableOpacity>
+            </View>
 
+            <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
               {props.noteDraftBullets.map((bullet: string, idx: number) => (
                 <View key={idx} style={{ marginBottom: 16, backgroundColor: colors.bg, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.border }}>
                   <TextInput
