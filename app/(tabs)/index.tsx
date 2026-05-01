@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, Pressable, Vibration, useWindowDimensions } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders, X, Check } from 'lucide-react-native';
+import { TrendingUp, Target, Flame, BookOpen, BarChart3, ChevronRight, Layout, Play, Clock, RotateCcw, Zap, History, Plus, GripVertical, Sliders, X, Check, Maximize2 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
@@ -53,6 +53,33 @@ export default function Home() {
 
   const activeWidgets = useMemo(() => widgets.filter(w => !w.is_archived), [widgets]);
   const archivedWidgets = useMemo(() => widgets.filter(w => w.is_archived), [widgets]);
+
+  // Grouping logic for mixed columns
+  const widgetRows = useMemo(() => {
+    const rows: { id: string; items: Widget[] }[] = [];
+    let currentRow: Widget[] = [];
+
+    activeWidgets.forEach((w) => {
+      if (w.size === 'full') {
+        if (currentRow.length > 0) {
+          rows.push({ id: currentRow.map(i => i.id).join('-'), items: currentRow });
+          currentRow = [];
+        }
+        rows.push({ id: w.id, items: [w] });
+      } else {
+        currentRow.push(w);
+        if (currentRow.length === 2) {
+          rows.push({ id: currentRow.map(i => i.id).join('-'), items: currentRow });
+          currentRow = [];
+        }
+      }
+    });
+
+    if (currentRow.length > 0) {
+      rows.push({ id: currentRow.map(i => i.id).join('-'), items: currentRow });
+    }
+    return rows;
+  }, [activeWidgets]);
   
   useEffect(() => {
     AsyncStorage.getItem('dashboard_widget_config').then(val => {
@@ -169,21 +196,19 @@ export default function Home() {
   return (
     <PageWrapper>
       <DraggableFlatList
-        data={activeWidgets}
+        data={widgetRows}
         keyExtractor={(item) => item.id}
-        onDragEnd={handleReorder}
+        onDragEnd={({ data }) => {
+          const flat = data.flatMap(row => row.items);
+          handleReorder({ data: flat });
+        }}
         activationDistance={10}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         keyboardShouldPersistTaps="handled"
-        // PATCH 6: prevent runaway layout — every row is at least 140px,
-        // virtualization remains correct, and there's no infinite blank line.
         windowSize={10}
         initialNumToRender={10}
         maxToRenderPerBatch={10}
-        numColumns={2}
-        columnWrapperStyle={{ gap: CARD_GAP, marginBottom: CARD_GAP }}
-        key={2}
         ListEmptyComponent={() => (
           <View style={{ padding: 32, alignItems: 'center' }}>
             <Text style={{ color: colors.textTertiary, fontSize: 13 }}>
@@ -302,48 +327,48 @@ export default function Home() {
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>MY WIDGETS</Text>
           </>
         )}
-        renderItem={({ item, drag, isActive }) => (
+        renderItem={({ item: row, drag, isActive }) => (
           <ScaleDecorator>
-            <TouchableOpacity
-              onLongPress={isEditMode ? drag : undefined}
-              delayLongPress={200}
-              disabled={isActive}
-              activeOpacity={0.9}
-              style={{
-                width: CARD_WIDTH,
-                // minHeight removed or reduced for grid
-                opacity: isActive ? 0.85 : 1,
-              }}
-            >
-              <View style={{ position: 'relative' }}>
-                <WidgetRenderer
-                  widgetKey={item.widget_key}
-                  data={widgetData}
-                  // PATCH 6: archive only available in edit mode
-                  onArchive={isEditMode ? () => handleArchive(item.id) : undefined}
-                />
-                {isEditMode && (
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute',
-                      bottom: 8,
-                      right: 8,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                      paddingHorizontal: 8,
-                      paddingVertical: 4,
-                      borderRadius: 10,
-                      backgroundColor: colors.primary,
-                    }}
-                  >
-                    <GripVertical size={12} color="#fff" />
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>HOLD TO DRAG</Text>
+            <View style={{ flexDirection: 'row', gap: CARD_GAP, marginBottom: CARD_GAP }}>
+              {row.items.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  onLongPress={isEditMode ? drag : undefined}
+                  delayLongPress={200}
+                  disabled={isActive}
+                  activeOpacity={0.9}
+                  style={{
+                    flex: item.size === 'full' ? 1 : 0.5,
+                    opacity: isActive ? 0.85 : 1,
+                  }}
+                >
+                  <View style={{ position: 'relative' }}>
+                    <WidgetRenderer
+                      widgetKey={item.widget_key}
+                      data={widgetData}
+                      onArchive={isEditMode ? () => handleArchive(item.id) : undefined}
+                    />
+                    {isEditMode && (
+                      <View style={styles.editOverlay}>
+                        <TouchableOpacity 
+                          onPress={async () => {
+                            const nextSize = item.size === 'full' ? 'half' : 'full';
+                            await WidgetService.setSize(userId!, item.id, nextSize);
+                            setWidgets(prev => prev.map(w => w.id === item.id ? { ...w, size: nextSize } : w));
+                          }}
+                          style={styles.sizeToggle}
+                        >
+                          <Maximize2 size={12} color="#fff" />
+                          <Text style={styles.sizeToggleText}>{item.size.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                        <GripVertical size={12} color="#fff" />
+                      </View>
+                    )}
                   </View>
-                )}
-              </View>
-            </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+              {row.items.length === 1 && row.items[0].size === 'half' && <View style={{ flex: 0.5 }} />}
+            </View>
           </ScaleDecorator>
         )}
         ListFooterComponent={() => (
@@ -559,4 +584,26 @@ const styles = StyleSheet.create({
   applyBtn: { height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   applyText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   doneBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
+  editOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  sizeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  sizeToggleText: { color: '#fff', fontSize: 9, fontWeight: '900' },
 });

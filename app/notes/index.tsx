@@ -117,6 +117,18 @@ export default function NotesProScreen() {
   const COLUMN_WIDTH = (windowWidth - spacing.lg * 3) / 2 - 1;
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  
+  useEffect(() => {
+    AsyncStorage.getItem('notes_expanded_sections').then(val => {
+      if (val) setExpandedSections(JSON.parse(val));
+    });
+  }, []);
+
+  const persistExpanded = (next: Record<string, boolean>) => {
+    setExpandedSections(next);
+    AsyncStorage.setItem('notes_expanded_sections', JSON.stringify(next)).catch(() => {});
+  };
+
   const [expandedMicroTopics, setExpandedMicroTopics] = useState<Record<string, boolean>>({});
   const [actionNote, setActionNote] = useState<PilotNoteNode | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -127,6 +139,11 @@ export default function NotesProScreen() {
   const [moveTargetType, setMoveTargetType] = useState<'note' | 'folder' | null>(null);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [createType, setCreateType] = useState<'folder' | 'note'>('note');
+
+  const activeFolderData = useMemo(() => {
+    if (!activeSubjectId) return null;
+    return vaultData.allFolders.find((f: any) => f.id === activeSubjectId);
+  }, [activeSubjectId, vaultData.allFolders]);
   // PATCH 2: folder/note actions sheet
   const [folderAction, setFolderAction] = useState<{ id: string; name: string; type: 'folder' | 'note'; note_id?: string } | null>(null);
   const [renameVisible, setRenameVisible] = useState(false);
@@ -180,8 +197,8 @@ export default function NotesProScreen() {
     const crumbs: { id: string, name: string }[] = [];
     let currId: string | null = folderId;
     let safety = 0;
-    while (currId && safety < 10) {
-      const folder = vaultData.allFolders?.[currId];
+    while (currId && safety < 20) {
+      const folder = vaultData.allFolders.find((f: any) => f.id === currId);
       if (!folder) break;
       crumbs.unshift({ id: folder.id, name: folder.name });
       currId = folder.parentId;
@@ -316,7 +333,8 @@ export default function NotesProScreen() {
 
   const toggleSection = (secName: string) => {
     LayoutAnimation.configureNext(PREMIUM_LAYOUT_ANIM);
-    setExpandedSections(prev => ({ ...prev, [secName]: !prev[secName] }));
+    const next = { ...expandedSections, [secName]: !expandedSections[secName] };
+    persistExpanded(next);
   };
 
   const toggleMicroTopic = (microName: string) => {
@@ -554,13 +572,9 @@ export default function NotesProScreen() {
 
   const stats = useMemo(() => [
     { label: 'Total Notes', value: vaultData.totalCount, icon: FileText },
-    { label: 'Root Folders', value: vaultData.subjects.length, icon: BookOpen },
+    { label: 'Root Folders', value: vaultData.tree.filter((n: any) => n.type === 'folder').length, icon: BookOpen },
   ], [vaultData]);
 
-  const activeFolderData = useMemo(() => 
-    vaultData.allFolders?.[activeSubjectId || ''] || null, 
-    [activeSubjectId, vaultData]
-  );
 
 
 
@@ -608,94 +622,59 @@ export default function NotesProScreen() {
   };
 
   // --- Recursive Tree Components ---
-  const TreeMicroTopic = ({ topic, sectionId }: { topic: PilotVaultMicroTopic, sectionId: string }) => {
-    return (
-      <View style={[styles.treeRow, { paddingLeft: 40 }]}>
-        <TouchableOpacity 
-          onPress={() => router.push({ pathname: '/notes', params: { sid: topic.id } })}
-          onLongPress={() => openFolderActions(topic, 'folder')}
-          delayLongPress={350}
-          activeOpacity={0.7}
-          style={{ flex: 1 }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, padding: 6, borderRadius: 12 }}>
-            <View style={[styles.folderIconSmall, { backgroundColor: colors.primary + '10' }]}>
-               <FolderOpen size={14} color={colors.primary} />
-            </View>
-            <Text style={[styles.treeText, { color: colors.textPrimary }]}>{topic.name}</Text>
-            <Text style={styles.treeCount}>{topic.notes.length} notes</Text>
-            <ChevronRight size={14} color={colors.textTertiary} />
-          </View>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  const TreeRow = ({ item, depth = 0 }: { item: any, depth?: number }) => {
+    const isExpanded = expandedSections[item.id];
+    const isFolder = item.type === 'folder';
+    const hasChildren = isFolder && item.children && item.children.length > 0;
 
-  const TreeSection = ({ section, subjectId }: { section: PilotVaultSectionGroup, subjectId: string }) => {
-    return (
-      <View style={[styles.treeRow, { paddingLeft: 20 }]}>
-        <TouchableOpacity 
-          onPress={() => router.push({ pathname: '/notes', params: { sid: section.id } })}
-          onLongPress={() => openFolderActions(section, 'folder')}
-          delayLongPress={350}
-          activeOpacity={0.7}
-          style={{ flex: 1 }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, padding: 8, borderRadius: 12 }}>
-            <View style={[styles.folderIconSmall, { backgroundColor: '#10b981' + '10' }]}>
-               <FolderOpen size={16} color="#10b981" />
-            </View>
-            <Text style={[styles.treeText, { color: colors.textPrimary, fontWeight: '700' }]}>{section.name}</Text>
-            <Text style={styles.treeCount}>{section.totalCount} items</Text>
-            <ChevronRight size={16} color={colors.textTertiary} />
-          </View>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const SubjectCard = ({ subject }: { subject: PilotVaultSubject }) => {
-    return (
-      <TouchableOpacity
-        onPress={() => router.push({ pathname: '/notes', params: { sid: subject.id } })}
-        onLongPress={() => openFolderActions(subject, 'folder')}
-        delayLongPress={350}
-        activeOpacity={0.8}
-        style={{ width: COLUMN_WIDTH }}
-      >
-        <View style={[styles.subjectCard, { backgroundColor: colors.surface, borderColor: 'rgba(255, 255, 255, 0.4)' }]}>
-          <View style={[styles.subjectIcon, { backgroundColor: colors.primary + '10' }]}>
-             <FolderOpen size={20} color={colors.primary} />
-          </View>
-          <Text style={[styles.subjectName, { color: colors.textPrimary }]} numberOfLines={1}>{subject.name}</Text>
-          <Text style={[styles.subjectCount, { color: colors.textTertiary }]}>{subject.totalCount} items</Text>
+    if (!isFolder) {
+      return (
+        <View style={{ paddingLeft: depth * 20, marginBottom: 4 }}>
+          <PilotNoteCard note={item} onLongPress={onNoteLongPress} />
         </View>
-      </TouchableOpacity>
-    );
-  };
+      );
+    }
 
-  const TreeSubject = ({ subject }: { subject: PilotVaultSubject }) => {
-    const isExpanded = expandedSections[subject.id];
     return (
       <View style={styles.treeNode}>
         <TouchableOpacity 
-          onPress={() => toggleSection(subject.id)}
-          style={[styles.treeRow, { backgroundColor: colors.surfaceStrong + '10', borderRadius: 12 }]}
+          onPress={() => hasChildren ? toggleSection(item.id) : router.push({ pathname: '/notes', params: { sid: item.id } })}
+          onLongPress={() => openFolderActions(item, 'folder')}
+          delayLongPress={350}
+          style={[styles.treeRow, { 
+            marginLeft: depth * 16,
+            backgroundColor: isExpanded ? colors.primary + '08' : 'transparent',
+            borderRadius: 12,
+            paddingVertical: 10,
+            paddingHorizontal: 8,
+            marginBottom: 2
+          }]}
           activeOpacity={0.7}
         >
-          <BookOpen size={18} color={isExpanded ? colors.primary : colors.textTertiary} />
-          <Text style={[styles.treeText, { color: colors.textPrimary, fontWeight: '800', fontSize: 15 }]}>{subject.name}</Text>
-          <ChevronRight size={16} color={colors.textTertiary} style={{ transform: [{ rotate: isExpanded ? '90deg' : '0deg' }] }} />
+          <View style={{ width: 20, alignItems: 'center' }}>
+            {hasChildren ? (
+              <ChevronRight size={14} color={colors.textTertiary} style={{ transform: [{ rotate: isExpanded ? '90deg' : '0deg' }] }} />
+            ) : (
+              <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.border }} />
+            )}
+          </View>
+          <FolderOpen size={18} color={isExpanded ? colors.primary : colors.textTertiary} />
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Text style={[styles.treeText, { 
+              color: colors.textPrimary, 
+              fontWeight: depth === 0 ? '800' : '600',
+              fontSize: depth === 0 ? 15 : 14
+            }]}>
+              {item.name}
+            </Text>
+          </View>
+          <Text style={[styles.treeCount, { color: colors.textTertiary }]}>{item.totalCount}</Text>
         </TouchableOpacity>
-        {isExpanded && (
+        
+        {isExpanded && item.children && (
           <View>
-            {Object.values(subject.sectionGroups).map(section => (
-              <TreeSection key={section.id} section={section} subjectId={subject.id} />
-            ))}
-            {subject.notes.map(note => (
-              <View style={{ paddingLeft: 20 }} key={note.id}>
-                <PilotNoteCard note={note} onLongPress={onNoteLongPress} />
-              </View>
+            {item.children.map((child: any) => (
+              <TreeRow key={child.id} item={child} depth={depth + 1} />
             ))}
           </View>
         )}
@@ -796,19 +775,34 @@ export default function NotesProScreen() {
                 </View>
 
                 <View style={viewMode === 'grid' ? styles.grid : styles.treeContainer}>
-                  {vaultData.subjects.length === 0 ? (
+                  {vaultData.tree.length === 0 ? (
                     <View style={styles.emptyState}>
                       <Database size={48} color={colors.textTertiary} opacity={0.3} />
                       <Text style={{ color: colors.textSecondary, marginTop: 12 }}>No notes found.</Text>
                     </View>
                   ) : (
                     viewMode === 'grid' ? (
-                        vaultData.subjects.map(subject => (
-                          <SubjectCard key={subject.id} subject={subject} />
-                        ))
+                      vaultData.tree.filter((n: any) => n.type === 'folder').map((folder: any) => (
+                        <TouchableOpacity
+                          key={folder.id}
+                          onPress={() => router.push({ pathname: '/notes', params: { sid: folder.id } })}
+                          onLongPress={() => openFolderActions(folder, 'folder')}
+                          delayLongPress={350}
+                          activeOpacity={0.8}
+                          style={{ width: COLUMN_WIDTH }}
+                        >
+                          <View style={[styles.subjectCard, { backgroundColor: colors.surface, borderColor: 'rgba(255, 255, 255, 0.4)' }]}>
+                            <View style={[styles.subjectIcon, { backgroundColor: colors.primary + '10' }]}>
+                               <FolderOpen size={20} color={colors.primary} />
+                            </View>
+                            <Text style={[styles.subjectName, { color: colors.textPrimary }]} numberOfLines={1}>{folder.name}</Text>
+                            <Text style={[styles.subjectCount, { color: colors.textTertiary }]}>{folder.totalCount} items</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))
                     ) : (
-                      vaultData.subjects.map(subject => (
-                        <TreeSubject key={subject.id} subject={subject} />
+                      vaultData.tree.map((item: any) => (
+                        <TreeRow key={item.id} item={item} />
                       ))
                     )
                   )}
@@ -883,19 +877,13 @@ export default function NotesProScreen() {
             </View>
             
             <ScrollView contentContainerStyle={styles.detailScroll} showsVerticalScrollIndicator={false}>
-              {/* 1. Subfolders (Section Groups) */}
-              {activeFolderData?.sectionGroups && Object.values(activeFolderData.sectionGroups).map((section: any) => (
-                <TreeSection key={section.id} section={section} subjectId={activeFolderData.id} />
-              ))}
-
-              {/* 2. Sub-subfolders (Micro Topics) */}
-              {activeFolderData?.microTopics && Object.values(activeFolderData.microTopics).map((topic: any) => (
-                <TreeMicroTopic key={topic.id} topic={topic} sectionId={activeFolderData.id} />
-              ))}
-
-              {/* 3. Direct Notes */}
-              {activeFolderData?.notes && activeFolderData.notes.map((note: any) => (
-                <DraggableNoteCard key={note.id} note={note} />
+              {/* Recursive Children (Folders then Notes) */}
+              {activeFolderData?.children && activeFolderData.children.map((item: any) => (
+                item.type === 'folder' ? (
+                  <TreeRow key={item.id} item={item} />
+                ) : (
+                  <DraggableNoteCard key={item.id} note={item} />
+                )
               ))}
             </ScrollView>
           </RNAnimated.View>

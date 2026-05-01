@@ -921,7 +921,7 @@ export default function UnifiedQuizEngine() {
     setNoteDraftBullets(next);
   };
 
-  const applyFormatting = (type: 'bold' | 'italic' | 'highlight') => {
+  const applyFormatting = (type: 'bold' | 'italic' | 'highlight' | 'underline' | 'bullet' | 'h2') => {
     const idx = activeInputIndex;
     const content = noteDraftBullets[idx] || '';
     const { start, end } = selection;
@@ -930,13 +930,14 @@ export default function UnifiedQuizEngine() {
     const selected = content.slice(start, end);
     const after = content.slice(end);
     
-    if (!selected) return; // Only apply if text is selected
-
-    let formatted = selected;
+    let formatted = selected || 'text';
     switch(type) {
-      case 'bold': formatted = `**${selected}**`; break;
-      case 'italic': formatted = `*${selected}*`; break;
-      case 'highlight': formatted = `<mark>${selected}</mark>`; break;
+      case 'bold': formatted = `**${formatted}**`; break;
+      case 'italic': formatted = `_${formatted}_`; break;
+      case 'highlight': formatted = `<mark>${formatted}</mark>`; break;
+      case 'underline': formatted = `<u>${formatted}</u>`; break;
+      case 'bullet': formatted = `\n- ${formatted}`; break;
+      case 'h2': formatted = `\n## ${formatted}`; break;
     }
     
     const next = [...noteDraftBullets];
@@ -2478,40 +2479,41 @@ const NotebookModal = (props: any) => {
               </View>
             </View>
 
-            {/* PATCH 4: STICKY formatting toolbar — lives OUTSIDE the ScrollView so it never hides */}
+            {/* PREMIUM STICKY formatting toolbar */}
             <View
               style={{
                 flexDirection: 'row',
-                gap: 10,
+                gap: 8,
                 paddingHorizontal: 20,
-                paddingTop: 16,
-                paddingBottom: 12,
+                paddingVertical: 12,
                 borderBottomWidth: 1,
                 borderBottomColor: colors.border + '50',
                 backgroundColor: colors.surface,
               }}
             >
-              <TouchableOpacity
-                onPress={() => props.applyFormatting('bold')}
-                style={{ flex: 1, height: 44, backgroundColor: colors.surfaceStrong, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-              >
-                <Bold size={18} color={colors.textPrimary} />
-                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary }}>BOLD</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => props.applyFormatting('italic')}
-                style={{ flex: 1, height: 44, backgroundColor: colors.surfaceStrong, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-              >
-                <Italic size={18} color={colors.textPrimary} />
-                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary }}>ITALIC</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => props.applyFormatting('highlight')}
-                style={{ flex: 1, height: 44, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-              >
-                <Highlighter size={18} color={colors.primary} />
-                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary }}>MARK</Text>
-              </TouchableOpacity>
+              {[
+                { type: 'bold', icon: Bold, label: 'B' },
+                { type: 'italic', icon: Italic, label: 'I' },
+                { type: 'underline', icon: Underline, label: 'U' },
+                { type: 'highlight', icon: Highlighter, label: 'MARK' },
+                { type: 'bullet', icon: ListIcon, label: 'LIST' },
+                { type: 'h2', icon: Hash, label: 'H2' },
+              ].map((btn: any) => (
+                <TouchableOpacity
+                  key={btn.type}
+                  onPress={() => props.applyFormatting(btn.type)}
+                  style={{ 
+                    flex: 1, 
+                    height: 40, 
+                    backgroundColor: btn.type === 'highlight' ? colors.primary + '15' : colors.surfaceStrong, 
+                    borderRadius: 10, 
+                    alignItems: 'center', 
+                    justifyContent: 'center' 
+                  }}
+                >
+                  <btn.icon size={16} color={btn.type === 'highlight' ? colors.primary : colors.textPrimary} />
+                </TouchableOpacity>
+              ))}
             </View>
 
             <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">

@@ -38,6 +38,9 @@ import { FlashcardLocalCache } from '../../src/services/FlashcardLocalCache';
 import { pickAndUploadFlashcardImage } from '../../src/services/ImageUpload';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
+import { applySrs, previewAll, Rating, SrsCardState, SrsSettings, DEFAULT_SRS_SETTINGS } from '../../src/services/sm2';
+import { SrsSettingsSvc } from '../../src/services/SrsSettingsService';
+import { Settings as SettingsIcon } from 'lucide-react-native';
 
 export default function ReviewScreen() {
   const { colors } = useTheme();
@@ -61,9 +64,9 @@ export default function ReviewScreen() {
   const baseFontSize = useRef(18);
   const [showZoomIndicator, setShowZoomIndicator] = useState(false);
   const zoomTimer = useRef<any>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
   const [personalNote, setPersonalNote] = useState('');
   const [nextDueLabel, setNextDueLabel] = useState<string | null>(null);
+  const [settings, setSettings] = useState<SrsSettings>(DEFAULT_SRS_SETTINGS);
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -71,12 +74,16 @@ export default function ReviewScreen() {
     (async () => {
       if (!session?.user.id) return;
       await loadZoomSetting();
+      const srsSettings = await SrsSettingsSvc.load(session.user.id);
+      setSettings(srsSettings);
+
       const saved = await FlashcardLocalCache.loadSession(session.user.id, selectedMicrotopic as string);
       if (saved && saved.queueCardIds.length) {
         const { data } = await supabase.from('cards').select('*').in('id', saved.queueCardIds);
         const byId: Record<string, any> = {};
         (data || []).forEach((c: any) => (byId[c.id] = c));
-        setQueue(saved.queueCardIds.map((id) => byId[id]).filter(Boolean));
+        const initialQueue = saved.queueCardIds.map((id) => byId[id]).filter(Boolean).map(c => ({ card: c, readyAt: 0 }));
+        setQueue(initialQueue);
         setCurrentIndex(saved.currentIndex);
         setIsFlipped(saved.flipped);
         flipAnim.setValue(saved.flipped ? 180 : 0);
@@ -164,7 +171,7 @@ export default function ReviewScreen() {
         finalQueue = filtered.sort(() => Math.random() - 0.5);
       }
 
-      setQueue(finalQueue);
+      setQueue(finalQueue.map(c => ({ card: c, readyAt: 0 })));
     } catch (err) {
       console.error(err);
     } finally {
@@ -197,17 +204,42 @@ export default function ReviewScreen() {
     }
   };
 
-  const rate = async (quality: number) => {
-    const card = queue[currentIndex];
-    if (!card || !session?.user.id) return;
+  const rate = async (rating: Rating) => {
+    const entry = queue[currentIndex];
+    if (!entry || !session?.user.id) return;
 
     try {
-      const sm = await FlashcardLocalCache.reviewCardSafe(session.user.id, card.id, quality);
-      setNextDueLabel(`+${sm.interval_days}d`);
-      setIsFlipped(false);
-      setShowCorrect(false);
-      flipAnim.setValue(0);
-      nextCard();
+      const result = await FlashcardLocalCache.reviewCardSafe(session.user.id, entry.card.id, rating);
+      setNextDueLabel(result.delta_label);
+
+      // Update card in memory for this session
+      entry.card.state = {
+        ...(entry.card.state || {}),
+        ...result,
+        next_review: result.next_review.toISOString(),
+      };
+
+      const remaining = queue.filter((_, i) => i !== currentIndex);
+      if (result.in_learning) {
+        const readyAt = Date.now() + result.delta_minutes * 60_000;
+        remaining.push({ card: entry.card, readyAt });
+      }
+
+      // Sort: cards whose readyAt has passed first, then by readyAt ascending.
+      remaining.sort((a, b) => a.readyAt - b.readyAt);
+
+      setQueue(remaining);
+      
+      if (remaining.length === 0) {
+        Alert.alert('Session Complete', "You've finished all cards in this session!", [
+          { text: 'Done', onPress: () => router.back() },
+        ]);
+      } else {
+        setIsFlipped(false);
+        setShowCorrect(false);
+        flipAnim.setValue(0);
+        setCurrentIndex(0); // Always point to the top of the sorted queue
+      }
     } catch (err) {
       Alert.alert('Error', 'Could not save review.');
       console.error(err);
@@ -323,7 +355,26 @@ export default function ReviewScreen() {
     }
   };
 
-  const currentCard = queue[currentIndex];
+  const currentCard = queue[currentIndex]?.card;
+
+  const cardState: SrsCardState = useMemo(() => {
+    if (!currentCard) return { ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0, learning_step: 0, status: 'learning' };
+    const s = currentCard.state ?? {};
+    return {
+      ease_factor: s.ease_factor ?? settings.startingEase,
+      interval_days: s.interval_days ?? 0,
+      repetitions: s.repetitions ?? 0,
+      lapses: s.lapses ?? 0,
+      learning_step: s.learning_step ?? (s.repetitions ? null : 0),
+      status: s.status ?? 'learning',
+    };
+  }, [currentCard, settings]);
+
+  const preview = useMemo(
+    () => (isFlipped && currentCard ? previewAll(cardState, settings) : null),
+    [isFlipped, cardState, settings, currentCard]
+  );
+
   const frontInterpolate = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] });
   const backInterpolate = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ['180deg', '360deg'] });
 
@@ -364,6 +415,13 @@ export default function ReviewScreen() {
               <View style={[styles.progressBarFill, { width: `${((currentIndex + 1) / queue.length) * 100}%`, backgroundColor: colors.primary }]} />
             </View>
           </View>
+
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => router.push('/flashcards/settings')}
+          >
+            <SettingsIcon size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.headerBtn}
@@ -690,13 +748,14 @@ export default function ReviewScreen() {
           {isFlipped ? (
             <View style={styles.qualityRow}>
               {[
-                { q: 0, label: 'Again', color: '#ef4444' },
-                { q: 3, label: 'Hard', color: '#f59e0b' },
-                { q: 4, label: 'Good', color: colors.primary },
-                { q: 5, label: 'Easy', color: '#22c55e' },
+                { q: 'again' as Rating, label: 'Again', color: '#ef4444' },
+                { q: 'hard' as Rating, label: 'Hard', color: '#f59e0b' },
+                { q: 'good' as Rating, label: 'Good', color: colors.primary },
+                { q: 'easy' as Rating, label: 'Easy', color: '#22c55e' },
               ].map(({ q, label, color }) => (
                 <TouchableOpacity key={label} style={[styles.qBtn, { borderColor: color }]} onPress={() => rate(q)}>
                   <Text style={[styles.qBtnLabel, { color }]}>{label}</Text>
+                  <Text style={[styles.qBtnSub, { color }]}>{preview?.[q].delta_label || ''}</Text>
                 </TouchableOpacity>
               ))}
             </View>

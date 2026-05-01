@@ -4,6 +4,7 @@ import { X, Image as ImageIcon, Save, Type } from 'lucide-react-native';
 import { colors, radius, spacing } from '../theme';
 import { FlashcardSvc } from '../services/FlashcardService';
 import { pickAndCompress, uploadCompressedImage } from '../services/ImageUpload';
+import { RichTextField } from './RichTextField';
 
 export function AddBlockToFlashcardSheet({
   visible, onClose, userId, noteId, blockId, suggestedText, subject, sectionGroup, microtopic,
@@ -57,7 +58,14 @@ export function AddBlockToFlashcardSheet({
           </View>
           <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: 14 }}>
             <Text style={s.lbl}>FRONT</Text>
-            <TextInput multiline value={front} onChangeText={setFront} style={s.input} placeholder="Question / prompt" placeholderTextColor={colors.textTertiary} />
+            <RichTextField 
+              value={front} onChangeText={setFront} 
+              placeholder="Question / prompt"
+              primaryColor={colors.primary}
+              surface={colors.surface}
+              textColor={colors.textPrimary}
+              border={colors.border}
+            />
             <TouchableOpacity style={s.imgBtn} onPress={() => pickImage('front')}>
               <ImageIcon size={16} color={colors.primary} />
               <Text style={s.imgBtnText}>{frontImg ? 'Replace front image' : 'Add front image (auto-compress)'}</Text>
@@ -65,7 +73,14 @@ export function AddBlockToFlashcardSheet({
             {frontImg && <Text style={s.thumb}>✓ {frontImg.slice(0, 40)}…</Text>}
 
             <Text style={s.lbl}>BACK</Text>
-            <TextInput multiline value={back} onChangeText={setBack} style={s.input} placeholder="Answer / explanation" placeholderTextColor={colors.textTertiary} />
+            <RichTextField 
+              value={back} onChangeText={setBack} 
+              placeholder="Answer / explanation"
+              primaryColor={colors.primary}
+              surface={colors.surface}
+              textColor={colors.textPrimary}
+              border={colors.border}
+            />
             <TouchableOpacity style={s.imgBtn} onPress={() => pickImage('back')}>
               <ImageIcon size={16} color={colors.primary} />
               <Text style={s.imgBtnText}>{backImg ? 'Replace back image' : 'Add back image'}</Text>

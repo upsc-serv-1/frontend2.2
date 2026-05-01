@@ -1,57 +1,180 @@
-/**
- * SuperMemo-2 standard implementation (Noji/Anki style).
- * quality scale 0..5  (0 total blackout, 3 = recalled with difficulty, 5 = perfect)
- */
-export interface SM2Input {
-  ease_factor: number;   // EF, min 1.3
-  interval_days: number; // I, days
-  repetitions: number;   // n, count of consecutive correct
-  quality: number;       // q, 0..5
+// src/services/sm2.ts
+// CLIENT-SIDE Spaced Repetition engine. Pure functions. Single source of truth.
+
+export type Rating = 'again' | 'hard' | 'good' | 'easy';
+
+export interface SrsSettings {
+  learningStepsMinutes: number[];
+  graduatingIntervalDays: number;
+  easyIntervalDays: number;
+  startingEase: number;
+  easyBonus: number;
+  intervalModifier: number;
+  hardMultiplier: number;
+  maxIntervalDays: number;
+  minEase: number;
+  leechThreshold: number;
 }
-export interface SM2Output {
+
+export const DEFAULT_SRS_SETTINGS: SrsSettings = {
+  learningStepsMinutes: [1, 10],
+  graduatingIntervalDays: 1,
+  easyIntervalDays: 4,
+  startingEase: 2.5,
+  easyBonus: 1.3,
+  intervalModifier: 1.0,
+  hardMultiplier: 1.2,
+  maxIntervalDays: 365,
+  minEase: 1.3,
+  leechThreshold: 8,
+};
+
+export interface SrsCardState {
   ease_factor: number;
   interval_days: number;
+  interval_minutes?: number;
   repetitions: number;
-  next_review: Date;
+  lapses: number;
+  learning_step: number | null;
   status: 'learning' | 'review' | 'mastered' | 'leech';
-  lapsed: boolean;
 }
 
-export function applySM2(input: SM2Input, lapses: number = 0): SM2Output {
-  const q = Math.max(0, Math.min(5, Math.round(input.quality)));
-  let { ease_factor, interval_days, repetitions } = input;
-  let lapsed = false;
+export interface SrsResult extends SrsCardState {
+  next_review: Date;
+  delta_minutes: number;
+  delta_label: string;
+  lapsed: boolean;
+  in_learning: boolean;
+}
 
-  if (q < 3) {
-    // Lapse — restart
-    repetitions = 0;
-    interval_days = 1;
-    lapsed = true;
-    // Note: Standard SM-2 says start from beginning without changing EF
-    // but ChatGPT prompt says "EF must ALWAYS be updated". 
-    // However, decreasing EF on failure makes it too hard.
-    // I will keep EF stable on failure to prevent the "death spiral".
+const QUALITY: Record<Rating, number> = { again: 0, hard: 3, good: 4, easy: 5 };
+export const ratingToQuality = (r: Rating) => QUALITY[r];
+
+export function formatDelta(minutes: number): string {
+  if (minutes < 60) return `+${Math.max(1, Math.round(minutes))}m`;
+  const days = minutes / 1440;
+  if (days < 1) return `+${Math.round(minutes / 60)}h`;
+  if (days < 30) return `+${Math.round(days)}d`;
+  if (days < 365) return `+${Math.round(days / 30)}mo`;
+  return `+${(days / 365).toFixed(1)}y`;
+}
+
+const clampInterval = (i: number, s: SrsSettings) =>
+  Math.min(Math.max(1, Math.round(i)), s.maxIntervalDays);
+
+export function applySrs(
+  prev: SrsCardState,
+  rating: Rating,
+  settings: SrsSettings = DEFAULT_SRS_SETTINGS
+): SrsResult {
+  let { ease_factor, interval_days, repetitions, lapses, learning_step, status } = prev;
+  if (!ease_factor || ease_factor < settings.minEase) ease_factor = settings.startingEase;
+
+  let lapsed = false;
+  let interval_minutes = 0;
+
+  if (learning_step !== null) {
+    if (rating === 'again') {
+      learning_step = 0;
+      interval_minutes = settings.learningStepsMinutes[0];
+      status = 'learning';
+    } else if (rating === 'hard') {
+      interval_minutes = Math.round(settings.learningStepsMinutes[learning_step] * 1.5);
+      status = 'learning';
+    } else if (rating === 'good') {
+      const next = learning_step + 1;
+      if (next >= settings.learningStepsMinutes.length) {
+        learning_step = null;
+        repetitions = 1;
+        interval_days = clampInterval(settings.graduatingIntervalDays, settings);
+        status = 'review';
+      } else {
+        learning_step = next;
+        interval_minutes = settings.learningStepsMinutes[next];
+      }
+    } else if (rating === 'easy') {
+      learning_step = null;
+      repetitions = 1;
+      interval_days = clampInterval(settings.easyIntervalDays, settings);
+      status = 'review';
+    }
   } else {
-    if (repetitions === 0) interval_days = 1;
-    else if (repetitions === 1) interval_days = 6;
-    else interval_days = Math.round(interval_days * ease_factor);
-    
-    // Only update EF on success (Standard SM-2 rule)
-    ease_factor = ease_factor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
-    repetitions += 1;
+    if (rating === 'again') {
+      lapses += 1; lapsed = true;
+      repetitions = 0;
+      learning_step = 0;
+      interval_minutes = settings.learningStepsMinutes[0];
+      ease_factor = Math.max(settings.minEase, ease_factor - 0.20);
+      status = 'learning';
+    } else {
+      let nextInterval: number;
+      if (repetitions === 0)      nextInterval = settings.graduatingIntervalDays;
+      else if (repetitions === 1) nextInterval = 6;
+      else                        nextInterval = interval_days * ease_factor;
+
+      if (rating === 'hard') {
+        nextInterval = Math.max(interval_days * settings.hardMultiplier, interval_days + 1);
+      } else if (rating === 'easy') {
+        nextInterval = nextInterval * settings.easyBonus;
+        ease_factor += 0.15;
+      }
+      nextInterval = nextInterval * settings.intervalModifier;
+      interval_days = clampInterval(nextInterval, settings);
+      repetitions += 1;
+      status = interval_days >= 90 ? 'mastered' : 'review';
+    }
+    if (ease_factor < settings.minEase) ease_factor = settings.minEase;
+    ease_factor = Math.round(ease_factor * 100) / 100;
   }
 
-  if (ease_factor < 1.3) ease_factor = 1.3;
-  ease_factor = Math.round(ease_factor * 100) / 100;
+  if (lapses >= settings.leechThreshold && interval_days <= 1) status = 'leech';
 
   const next_review = new Date();
-  next_review.setDate(next_review.getDate() + interval_days);
+  if (learning_step !== null) next_review.setMinutes(next_review.getMinutes() + interval_minutes);
+  else                        next_review.setDate(next_review.getDate() + interval_days);
 
-  let status: SM2Output['status'] =
-    interval_days >= 90 ? 'mastered' :
-    repetitions <= 1 ? 'learning' :
-    'review';
-  if (lapses + (lapsed ? 1 : 0) >= 8 && interval_days <= 1) status = 'leech';
+  const delta_minutes = learning_step !== null ? interval_minutes : interval_days * 1440;
 
-  return { ease_factor, interval_days, repetitions, next_review, status, lapsed };
+  return {
+    ease_factor,
+    interval_days: learning_step !== null ? 0 : interval_days,
+    interval_minutes: learning_step !== null ? interval_minutes : 0,
+    repetitions,
+    lapses,
+    learning_step,
+    status,
+    next_review,
+    delta_minutes,
+    delta_label: formatDelta(delta_minutes),
+    lapsed,
+    in_learning: learning_step !== null,
+  };
+}
+
+export function previewAll(state: SrsCardState, settings: SrsSettings = DEFAULT_SRS_SETTINGS) {
+  return {
+    again: applySrs(state, 'again', settings),
+    hard:  applySrs(state, 'hard',  settings),
+    good:  applySrs(state, 'good',  settings),
+    easy:  applySrs(state, 'easy',  settings),
+  };
+}
+
+export function nextDueIso(intervalDays: number) {
+  const d = new Date(); d.setDate(d.getDate() + Math.max(intervalDays, 0));
+  return d.toISOString();
+}
+
+export function applySM2(input: { ease_factor:number; interval_days:number; repetitions:number; quality:number }, lapses = 0) {
+  const q = Math.max(0, Math.min(5, Math.round(input.quality)));
+  const rating: Rating = q < 3 ? 'again' : q === 3 ? 'hard' : q === 4 ? 'good' : 'easy';
+  const out = applySrs({
+    ease_factor: input.ease_factor, interval_days: input.interval_days,
+    repetitions: input.repetitions, lapses,
+    learning_step: input.repetitions === 0 ? 0 : null,
+    status: input.repetitions === 0 ? 'learning' : 'review',
+  }, rating);
+  return { ease_factor: out.ease_factor, interval_days: out.interval_days || 1,
+           repetitions: out.repetitions, next_review: out.next_review,
+           status: out.status, lapsed: out.lapsed };
 }
