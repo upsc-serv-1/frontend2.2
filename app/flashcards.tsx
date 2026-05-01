@@ -384,17 +384,20 @@ export default function FlashcardsDashboard() {
         rightThreshold={40}
       >
         <View style={styles.treeRowContainer}>
-          {item.level > 0 && (
-            <View style={[
-              styles.vLine, 
-              { 
-                left: (item.level - 1) * 32 + 34, 
-                backgroundColor: colors.border,
-                top: -14,
-                bottom: item.isOpen ? 0 : 20 
-              }
-            ]} />
-          )}
+          {Array.from({ length: item.level }).map((_, i) => (
+            <View 
+              key={i}
+              style={[
+                styles.vLine, 
+                { 
+                  left: i * 32 + 34, 
+                  backgroundColor: colors.border + '50',
+                  top: 0,
+                  bottom: 0 
+                }
+              ]} 
+            />
+          ))}
           
           <View style={[styles.treeRow, { paddingLeft, backgroundColor: colors.bg }]}>
             {hasChildren ? (
@@ -402,7 +405,7 @@ export default function FlashcardsDashboard() {
                 onPress={() => toggleNode(item)}
                 style={[styles.expandBtn, { backgroundColor: colors.surfaceStrong }]}
               >
-                {item.isOpen ? <X size={14} color={colors.textPrimary} /> : <Plus size={14} color={colors.textPrimary} />}
+                {item.isOpen ? <Minus size={14} color={colors.textPrimary} /> : <Plus size={14} color={colors.textPrimary} />}
               </TouchableOpacity>
             ) : (
               <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
@@ -422,7 +425,7 @@ export default function FlashcardsDashboard() {
                 {item.name}
               </Text>
               <Text style={[styles.nodeSub, { color: colors.textTertiary }]}>
-                {item.cardCount} cards • {item.is_archived ? 'Archived' : 'Active'}
+                Cards for today: {item.cardCount}
               </Text>
             </TouchableOpacity>
           </View>
