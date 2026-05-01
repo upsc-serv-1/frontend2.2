@@ -1,6 +1,5 @@
 import { supabase } from '../lib/supabase';
 import { applySM2 } from './sm2';
-import { FlashcardBranchService } from './FlashcardBranchService';
 
 export type CardSource =
   | { kind: 'question'; question_id: string }
@@ -122,17 +121,6 @@ export class FlashcardSvc {
         next_review: new Date().toISOString(), status: 'new',
       });
       if (error) throw error;
-    }
-
-    // Auto-organize into branch tree
-    try {
-      await FlashcardBranchService.ensureDefaultBranch(userId, card!.id, {
-        subject: input.subject || 'General',
-        section_group: input.section_group || 'General',
-        microtopic: input.microtopic || 'General'
-      });
-    } catch (e) {
-      console.error('[FlashcardSvc] ensureDefaultBranch error:', e);
     }
 
     return card!.id;
@@ -487,6 +475,65 @@ export class FlashcardSvc {
 
     if (error) throw error;
     return data || [];
+  }
+
+  static async getLearningHistorySummary(userId: string, cardId: string) {
+    await this.ensureUserHasCard(userId, cardId);
+
+    const { data: cardState, error: stateErr } = await supabase
+      .from('user_cards')
+      .select('created_at, next_review, learning_status, interval_days, repetitions, ease_factor')
+      .eq('user_id', userId)
+      .eq('card_id', cardId)
+      .single();
+
+    if (stateErr) throw stateErr;
+
+    const reviews = await this.getLearningHistory(userId, cardId, 300, 0);
+
+    return {
+      created_at: cardState.created_at,
+      next_review: cardState.next_review,
+      learning_status: cardState.learning_status,
+      interval_days: Number(cardState.interval_days ?? 0),
+      repetitions: Number(cardState.repetitions ?? 0),
+      ease_factor: Number(cardState.ease_factor ?? 2.5),
+      avg_review_duration: null,
+      reviews,
+    };
+  }
+
+  static async resetCardProgressForUser(userId: string, cardId: string) {
+    await this.ensureUserHasCard(userId, cardId);
+
+    const now = new Date().toISOString();
+    const { error: resetErr } = await supabase
+      .from('user_cards')
+      .update({
+        status: 'active',
+        learning_status: 'not_studied',
+        repetitions: 0,
+        interval_days: 0,
+        ease_factor: 2.5,
+        next_review: now,
+        last_reviewed: null,
+        last_quality: null,
+        lapses: 0,
+        again_count: 0,
+        updated_at: now,
+      })
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
+
+    if (resetErr) throw resetErr;
+
+    const { error: historyErr } = await supabase
+      .from('card_reviews')
+      .delete()
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
+
+    if (historyErr) throw historyErr;
   }
 
   /** @deprecated  Map old performance arg → quality. */

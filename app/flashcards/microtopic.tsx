@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   FlatList,
   SafeAreaView,
   ActivityIndicator,
-  Dimensions,
   TextInput,
   Modal,
   ScrollView,
@@ -24,16 +23,14 @@ import {
   BookOpen,
   X,
   Check,
+  Minus,
 } from 'lucide-react-native';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
-import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
 import { CardOverflowMenu, CardMenuAction } from '../../src/components/flashcards/CardOverflowMenu';
-
-const { width } = Dimensions.get('window');
 
 interface CardItem {
   id: string;
@@ -45,11 +42,45 @@ interface CardItem {
   updated_at: string;
 }
 
+type MoveTarget = {
+  subject: string;
+  section_group: string;
+  microtopic: string;
+};
+
+type MoveNodeType = 'subject' | 'section' | 'microtopic';
+
+type MoveTreeNode = {
+  id: string;
+  type: MoveNodeType;
+  name: string;
+  level: number;
+  parentId: string | null;
+  isOpen: boolean;
+  subject: string;
+  section_group: string;
+  microtopic: string;
+};
+
+function normalizeLabel(value: unknown, fallback = 'General') {
+  if (value === null || value === undefined) return fallback;
+  const text = String(Array.isArray(value) ? value[0] : value).trim();
+  return text.length ? text : fallback;
+}
+
+function buildNodeId(subject: string, section: string, microtopic?: string) {
+  return microtopic ? `${subject}|${section}|${microtopic}` : `${subject}|${section}`;
+}
+
 export default function MicrotopicModal() {
   const { colors } = useTheme();
   const router = useRouter();
   const { session } = useAuth();
-  const { subject, section, microtopic, branchId } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+
+  const currentSubject = normalizeLabel(params.subject);
+  const currentSection = normalizeLabel(params.section);
+  const currentMicrotopic = normalizeLabel(params.microtopic);
 
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<CardItem[]>([]);
@@ -71,42 +102,36 @@ export default function MicrotopicModal() {
   const [editBack, setEditBack] = useState('');
 
   const [moveVisible, setMoveVisible] = useState(false);
-  const [moveSubject, setMoveSubject] = useState('');
-  const [moveSection, setMoveSection] = useState('');
-  const [moveMicrotopic, setMoveMicrotopic] = useState('');
+  const [moveLoading, setMoveLoading] = useState(false);
+  const [moveTree, setMoveTree] = useState<MoveTreeNode[]>([]);
+  const [selectedMoveTarget, setSelectedMoveTarget] = useState<MoveTarget | null>(null);
+
+  const moveHierarchyRef = useRef<{
+    sectionsMap: Record<string, string[]>;
+    microtopicsMap: Record<string, string[]>;
+  }>({ sectionsMap: {}, microtopicsMap: {} });
 
   useEffect(() => {
     if (session?.user.id) loadCards();
-  }, [session, microtopic, subject, section, branchId]);
+  }, [session?.user?.id, currentSubject, currentSection, currentMicrotopic]);
 
   const loadCards = async () => {
     setLoading(true);
     try {
-      // 1. Get cards
-      let baseCards: any[] = [];
-      const userId = session!.user.id;
+      // 1) cards in current microtopic
+      let query = supabase.from('cards').select('*').eq('subject', currentSubject).eq('microtopic', currentMicrotopic);
 
-      if (branchId) {
-        console.log(`[FlashcardDeck] Loading by Branch ID: ${branchId}`);
-        const cardIds = await FlashcardBranchService.getCardsRecursive(userId, branchId as string);
-        if (cardIds.length > 0) {
-          const { data, error } = await supabase.from('cards').select('*').in('id', cardIds);
-          if (error) throw error;
-          baseCards = data || [];
-        }
+      if (currentSection === 'General') {
+        query = query.or('section_group.is.null,section_group.eq.General');
       } else {
-        const { data, error } = await supabase
-          .from('cards')
-          .select('*')
-          .eq('subject', subject)
-          .eq('section_group', section === 'General' ? null : section)
-          .eq('microtopic', microtopic);
-        if (error) throw error;
-        baseCards = data || [];
+        query = query.eq('section_group', currentSection);
       }
 
-      // 2. Get user's progress for these cards
-      const cardIds = (baseCards || []).map((c) => c.id);
+      const { data: baseCards, error: bErr } = await query;
+      if (bErr) throw bErr;
+
+      // 2) user states for these cards
+      const cardIds = (baseCards || []).map((c: any) => c.id);
       const { data: progress, error: pErr } = await supabase
         .from('user_cards')
         .select('*')
@@ -115,15 +140,15 @@ export default function MicrotopicModal() {
 
       if (pErr) throw pErr;
 
-      const progressMap = new Map();
-      progress?.forEach((p) => progressMap.set(p.card_id, p));
+      const progressMap = new Map<string, any>();
+      progress?.forEach((p: any) => progressMap.set(p.card_id, p));
 
-      const merged: CardItem[] = (baseCards || []).map((bc) => {
+      const merged: CardItem[] = (baseCards || []).map((bc: any) => {
         const p = progressMap.get(bc.id);
         return {
           id: bc.id,
-          front_text: bc.front_text || bc.question_text || bc.question || '',
-          back_text: bc.back_text || bc.answer_text || bc.answer || '',
+          front_text: bc.front_text || bc.question_text || '',
+          back_text: bc.back_text || bc.answer_text || '',
           status: p?.status || 'active',
           learning_status: p?.learning_status || 'not_studied',
           next_review: p?.next_review,
@@ -134,7 +159,6 @@ export default function MicrotopicModal() {
       const visible = merged.filter((c) => c.status !== 'deleted');
       setCards(visible);
 
-      // Calculate Stats (exclude deleted)
       const now = new Date();
       setStats({
         due: visible.filter((c) => c.status === 'active' && (!c.next_review || new Date(c.next_review) <= now)).length,
@@ -153,7 +177,6 @@ export default function MicrotopicModal() {
   const filteredAndSortedCards = useMemo(() => {
     let result = [...cards];
 
-    // Filter
     if (filterBy !== 'all') {
       if (filterBy === 'frozen') result = result.filter((c) => c.status === 'frozen');
       else if (filterBy === 'not_studied') result = result.filter((c) => c.learning_status === 'not_studied' && c.status === 'active');
@@ -162,7 +185,6 @@ export default function MicrotopicModal() {
       result = result.filter((c) => c.status === 'active');
     }
 
-    // Sort
     result.sort((a, b) => {
       if (sortBy === 'next') {
         const ad = a.next_review ? new Date(a.next_review).getTime() : 0;
@@ -171,8 +193,7 @@ export default function MicrotopicModal() {
       }
       if (sortBy === 'newest') return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       if (sortBy === 'oldest') return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
-      if (sortBy === 'az') return a.front_text.localeCompare(b.front_text);
-      return 0;
+      return a.front_text.localeCompare(b.front_text);
     });
 
     return result;
@@ -195,7 +216,6 @@ export default function MicrotopicModal() {
 
   const closeMenu = () => {
     setMenuVisible(false);
-    setMenuCard(null);
   };
 
   const openEdit = () => {
@@ -205,13 +225,187 @@ export default function MicrotopicModal() {
     setEditVisible(true);
   };
 
-  const openMove = () => {
-    if (!menuCard) return;
-    setMoveSubject(String(subject || 'General'));
-    setMoveSection(String(section || 'General'));
-    setMoveMicrotopic(String(microtopic || 'General'));
-    setMoveVisible(true);
+  const buildSectionNodes = (subject: string): MoveTreeNode[] => {
+    const sections = moveHierarchyRef.current.sectionsMap[subject] || ['General'];
+    return sections
+      .slice()
+      .sort((a, b) => a.localeCompare(b))
+      .map((sectionName) => ({
+        id: buildNodeId(subject, sectionName),
+        type: 'section' as const,
+        name: sectionName,
+        level: 1,
+        parentId: subject,
+        isOpen: false,
+        subject,
+        section_group: sectionName,
+        microtopic: 'General',
+      }));
   };
+
+  const buildMicroNodes = (subject: string, section: string): MoveTreeNode[] => {
+    const key = buildNodeId(subject, section);
+    const micros = moveHierarchyRef.current.microtopicsMap[key] || ['General'];
+    return micros
+      .slice()
+      .sort((a, b) => a.localeCompare(b))
+      .map((micro) => ({
+        id: buildNodeId(subject, section, micro),
+        type: 'microtopic' as const,
+        name: micro,
+        level: 2,
+        parentId: buildNodeId(subject, section),
+        isOpen: false,
+        subject,
+        section_group: section,
+        microtopic: micro,
+      }));
+  };
+
+  const loadMoveTree = async () => {
+    if (!session?.user?.id) return;
+
+    const { data, error } = await supabase
+      .from('user_cards')
+      .select('cards!inner(subject, section_group, microtopic)')
+      .eq('user_id', session.user.id)
+      .neq('status', 'deleted');
+
+    if (error) throw error;
+
+    const subjects = new Set<string>();
+    const sectionsMap: Record<string, Set<string>> = {};
+    const microtopicsMap: Record<string, Set<string>> = {};
+
+    (data || []).forEach((row: any) => {
+      const card = row.cards;
+      const subjectName = normalizeLabel(card?.subject, 'General');
+      const sectionName = normalizeLabel(card?.section_group, 'General');
+      const microName = normalizeLabel(card?.microtopic, 'General');
+
+      subjects.add(subjectName);
+
+      if (!sectionsMap[subjectName]) sectionsMap[subjectName] = new Set<string>();
+      sectionsMap[subjectName].add(sectionName);
+
+      const sectionKey = buildNodeId(subjectName, sectionName);
+      if (!microtopicsMap[sectionKey]) microtopicsMap[sectionKey] = new Set<string>();
+      microtopicsMap[sectionKey].add(microName);
+    });
+
+    const sectionsObj = Object.fromEntries(
+      Object.entries(sectionsMap).map(([subjectName, set]) => [subjectName, Array.from(set)])
+    ) as Record<string, string[]>;
+
+    const microsObj = Object.fromEntries(
+      Object.entries(microtopicsMap).map(([sectionKey, set]) => [sectionKey, Array.from(set)])
+    ) as Record<string, string[]>;
+
+    moveHierarchyRef.current = {
+      sectionsMap: sectionsObj,
+      microtopicsMap: microsObj,
+    };
+
+    const subjectNodes: MoveTreeNode[] = Array.from(subjects)
+      .sort((a, b) => a.localeCompare(b))
+      .map((subjectName) => ({
+        id: subjectName,
+        type: 'subject' as const,
+        name: subjectName,
+        level: 0,
+        parentId: null,
+        isOpen: false,
+        subject: subjectName,
+        section_group: 'General',
+        microtopic: 'General',
+      }));
+
+    let tree = [...subjectNodes];
+    const subjectIndex = tree.findIndex((n) => n.subject === currentSubject && n.type === 'subject');
+    if (subjectIndex >= 0) {
+      tree[subjectIndex] = { ...tree[subjectIndex], isOpen: true };
+      const sections = buildSectionNodes(currentSubject);
+      tree.splice(subjectIndex + 1, 0, ...sections);
+
+      const sectionIndex = tree.findIndex(
+        (n) => n.type === 'section' && n.subject === currentSubject && n.section_group === currentSection
+      );
+      if (sectionIndex >= 0) {
+        tree[sectionIndex] = { ...tree[sectionIndex], isOpen: true };
+        const micros = buildMicroNodes(currentSubject, currentSection);
+        tree.splice(sectionIndex + 1, 0, ...micros);
+      }
+    }
+
+    setMoveTree(tree);
+
+    setSelectedMoveTarget({
+      subject: currentSubject,
+      section_group: currentSection,
+      microtopic: currentMicrotopic,
+    });
+  };
+
+  const toggleMoveNode = (node: MoveTreeNode) => {
+    if (node.type === 'microtopic') {
+      setSelectedMoveTarget({
+        subject: node.subject,
+        section_group: node.section_group,
+        microtopic: node.microtopic,
+      });
+      return;
+    }
+
+    setMoveTree((prev) => {
+      const index = prev.findIndex((n) => n.id === node.id);
+      if (index < 0) return prev;
+
+      if (node.isOpen) {
+        return prev
+          .filter((item) => item.id === node.id || !item.id.startsWith(`${node.id}|`))
+          .map((item) => (item.id === node.id ? { ...item, isOpen: false } : item));
+      }
+
+      const next = [...prev];
+      next[index] = { ...node, isOpen: true };
+
+      const children = node.type === 'subject'
+        ? buildSectionNodes(node.subject)
+        : buildMicroNodes(node.subject, node.section_group);
+
+      next.splice(index + 1, 0, ...children);
+      return next;
+    });
+  };
+
+  const openMove = async () => {
+    if (!menuCard || !session?.user?.id) return;
+    setMoveVisible(true);
+    setMoveLoading(true);
+    try {
+      await loadMoveTree();
+    } catch (err: any) {
+      Alert.alert('Move failed', err?.message || 'Could not load locations');
+      setMoveVisible(false);
+    } finally {
+      setMoveLoading(false);
+    }
+  };
+
+  const currentLocation: MoveTarget = {
+    subject: currentSubject,
+    section_group: currentSection,
+    microtopic: currentMicrotopic,
+  };
+
+  const isSameLocation = !!selectedMoveTarget &&
+    selectedMoveTarget.subject === currentLocation.subject &&
+    selectedMoveTarget.section_group === currentLocation.section_group &&
+    selectedMoveTarget.microtopic === currentLocation.microtopic;
+
+  const moveButtonLabel = selectedMoveTarget
+    ? `Move to ${selectedMoveTarget.microtopic}`
+    : 'Choose a location';
 
   const handleMenuAction = async (action: CardMenuAction) => {
     if (!menuCard || !session?.user?.id) return;
@@ -239,7 +433,7 @@ export default function MicrotopicModal() {
 
         case 'move':
           closeMenu();
-          openMove();
+          await openMove();
           return;
 
         case 'reverse':
@@ -270,7 +464,7 @@ export default function MicrotopicModal() {
           closeMenu();
           router.push({
             pathname: '/flashcards/history',
-            params: { cardId: menuCard.id, title: menuCard.front_text?.slice(0, 40) || 'Card history' },
+            params: { cardId: menuCard.id },
           });
           return;
 
@@ -334,7 +528,7 @@ export default function MicrotopicModal() {
 
           router.push({
             pathname: '/flashcards/review',
-            params: { microtopic, subject, section, cardId: item.id },
+            params: { microtopic: currentMicrotopic, subject: currentSubject, section: currentSection, cardId: item.id },
           });
         }}
       >
@@ -376,10 +570,51 @@ export default function MicrotopicModal() {
           </TouchableOpacity>
         </View>
         <View style={styles.cardBottom}>
-          <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
+          <Text style={[styles.cardMeta, { color: colors.textTertiary }]}> 
             {item.learning_status.toUpperCase()} • Next: {item.next_review ? new Date(item.next_review).toLocaleDateString() : 'New'}
           </Text>
         </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderMoveNode = ({ item }: { item: MoveTreeNode }) => {
+    const isLeaf = item.type === 'microtopic';
+    const isSelected = !!selectedMoveTarget &&
+      item.type === 'microtopic' &&
+      selectedMoveTarget.subject === item.subject &&
+      selectedMoveTarget.section_group === item.section_group &&
+      selectedMoveTarget.microtopic === item.microtopic;
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.moveRow,
+          {
+            borderBottomColor: colors.border,
+            paddingLeft: 16 + item.level * 34,
+            backgroundColor: isSelected ? colors.primary + '18' : 'transparent',
+          },
+        ]}
+        onPress={() => toggleMoveNode(item)}
+      >
+        {isLeaf ? (
+          <View style={[styles.dotBullet, { backgroundColor: colors.textTertiary }]} />
+        ) : (
+          <View style={[styles.expandCircle, { backgroundColor: colors.surfaceStrong }]}> 
+            {item.isOpen ? (
+              <Minus size={14} color={colors.textTertiary} />
+            ) : (
+              <Plus size={14} color={colors.textTertiary} />
+            )}
+          </View>
+        )}
+
+        <Text style={[styles.moveRowText, { color: colors.textPrimary }]} numberOfLines={1}>
+          {item.name}
+        </Text>
+
+        {isSelected && <Check size={20} color={colors.primary} />}
       </TouchableOpacity>
     );
   };
@@ -394,10 +629,10 @@ export default function MicrotopicModal() {
           </TouchableOpacity>
           <View style={styles.headerInfo}>
             <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-              {microtopic}
+              {currentMicrotopic}
             </Text>
             <Text style={[styles.headerSub, { color: colors.textTertiary }]}> 
-              {subject} • {section}
+              {currentSubject} • {currentSection}
             </Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddModalVisible(true)}>
@@ -406,7 +641,6 @@ export default function MicrotopicModal() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* STATS & PROGRESS */}
           <View style={styles.statsPanel}>
             <View style={styles.statsRow}>
               <StatItem label="Due" value={stats.due} color={colors.primary} />
@@ -437,14 +671,18 @@ export default function MicrotopicModal() {
 
             <TouchableOpacity
               style={[styles.studyBtn, { backgroundColor: colors.primary }]}
-              onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section } })}
+              onPress={() =>
+                router.push({
+                  pathname: '/flashcards/review',
+                  params: { microtopic: currentMicrotopic, subject: currentSubject, section: currentSection },
+                })
+              }
             >
               <Play size={20} color="#fff" fill="#fff" />
               <Text style={styles.studyBtnText}>Study Cards</Text>
             </TouchableOpacity>
           </View>
 
-          {/* FILTERS & LIST */}
           <View style={styles.listSection}>
             {selectionMode && (
               <View style={styles.selectionBar}>
@@ -521,7 +759,7 @@ export default function MicrotopicModal() {
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '90%' }]}> 
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add to {microtopic}</Text>
+                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add to {currentMicrotopic}</Text>
                 <TouchableOpacity onPress={() => setIsAddModalVisible(false)}>
                   <X size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -559,7 +797,6 @@ export default function MicrotopicModal() {
           </View>
         </Modal>
 
-        {/* OVERFLOW MENU */}
         <CardOverflowMenu
           visible={menuVisible}
           frozen={menuCard?.status === 'frozen'}
@@ -630,49 +867,41 @@ export default function MicrotopicModal() {
         {/* MOVE MODAL */}
         <Modal visible={moveVisible} transparent animationType="slide" onRequestClose={() => setMoveVisible(false)}>
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '62%' }]}> 
+            <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '88%' }]}> 
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Move Card</Text>
+                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select location</Text>
                 <TouchableOpacity onPress={() => setMoveVisible(false)}>
                   <X size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: colors.textSecondary, marginBottom: 6 }}>Subject</Text>
-              <TextInput
-                value={moveSubject}
-                onChangeText={setMoveSubject}
-                style={[styles.noteInput, { height: 48, color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
-              />
-
-              <Text style={{ color: colors.textSecondary, marginBottom: 6, marginTop: 10 }}>Section</Text>
-              <TextInput
-                value={moveSection}
-                onChangeText={setMoveSection}
-                style={[styles.noteInput, { height: 48, color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
-              />
-
-              <Text style={{ color: colors.textSecondary, marginBottom: 6, marginTop: 10 }}>Microtopic</Text>
-              <TextInput
-                value={moveMicrotopic}
-                onChangeText={setMoveMicrotopic}
-                style={[styles.noteInput, { height: 48, color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
-              />
+              {moveLoading ? (
+                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
+              ) : (
+                <FlatList
+                  data={moveTree}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderMoveNode}
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingBottom: 16 }}
+                />
+              )}
 
               <TouchableOpacity
-                style={[styles.studyBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+                style={[
+                  styles.studyBtn,
+                  {
+                    backgroundColor: colors.primary,
+                    marginTop: 10,
+                    opacity: !selectedMoveTarget || isSameLocation ? 0.5 : 1,
+                  },
+                ]}
+                disabled={!selectedMoveTarget || isSameLocation}
                 onPress={async () => {
-                  if (!menuCard || !session?.user?.id) return;
-                  if (!moveSubject.trim() || !moveSection.trim() || !moveMicrotopic.trim()) {
-                    return Alert.alert('Validation', 'All fields are required');
-                  }
+                  if (!menuCard || !session?.user?.id || !selectedMoveTarget) return;
 
                   try {
-                    await FlashcardSvc.moveCardForUser(session.user.id, menuCard.id, {
-                      subject: moveSubject,
-                      section_group: moveSection,
-                      microtopic: moveMicrotopic,
-                    });
+                    await FlashcardSvc.moveCardForUser(session.user.id, menuCard.id, selectedMoveTarget);
                     setMoveVisible(false);
                     await loadCards();
                   } catch (err: any) {
@@ -680,7 +909,7 @@ export default function MicrotopicModal() {
                   }
                 }}
               >
-                <Text style={styles.studyBtnText}>Move</Text>
+                <Text style={styles.studyBtnText} numberOfLines={1}>{moveButtonLabel}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -725,6 +954,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     elevation: 4,
+    paddingHorizontal: 16,
   },
   studyBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   listSection: { flex: 1, paddingHorizontal: 20 },
@@ -754,7 +984,7 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 20, fontWeight: '900' },
+  modalTitle: { fontSize: 28, fontWeight: '700' },
   selectableItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -767,4 +997,31 @@ const styles = StyleSheet.create({
   selectableText: { flex: 1, fontSize: 14, fontWeight: '600' },
   checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 2 },
   noteInput: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+
+  moveRow: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomWidth: 1,
+    paddingRight: 14,
+  },
+  expandCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotBullet: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 10,
+  },
+  moveRowText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '500',
+  },
 });
