@@ -44,11 +44,12 @@ BEGIN
 
     -- 5. Backfill question_id from cards table
     UPDATE public.user_cards uc
-    SET question_id = c.question_id
+    SET question_id = c.question_id::uuid
     FROM public.cards c
     WHERE uc.card_id = c.id
     AND uc.question_id IS NULL
-    AND c.question_id IS NOT NULL;
+    AND c.question_id IS NOT NULL
+    AND c.question_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 
     -- 6. Add question_id to cards table if missing
     IF NOT EXISTS (
