@@ -153,6 +153,7 @@ export default function ReviewScreen() {
 
       const now = new Date();
       let filtered = (baseCards || []).map((c: any) => ({ ...c, state: stateMap[c.id] || {} }));
+      console.log(`[ReviewScreen] loadQueue: baseCards=${baseCards?.length}, userStates=${userStates?.length}`);
 
       if (reviewMode === 'due') {
         filtered = filtered.filter((card) => {
@@ -175,6 +176,7 @@ export default function ReviewScreen() {
         finalQueue = filtered.sort(() => Math.random() - 0.5);
       }
 
+      console.log(`[ReviewScreen] loadQueue: finalQueue=${finalQueue.length}`);
       setQueue(finalQueue.map(c => ({ card: c, readyAt: 0 })));
     } catch (err) {
       console.error(err);
