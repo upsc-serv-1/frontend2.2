@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { applySM2 } from './sm2';
 import { FlashcardBranchService } from './FlashcardBranchService';
+import { CardStatus, LearningStatus } from '../types/flashcards';
 
 export type CardSource =
   | { kind: 'question'; question_id: string }
@@ -22,8 +23,8 @@ export interface NewCardInput {
 }
 
 export interface CardState {
-  status: 'active' | 'frozen' | 'deleted' | string;
-  learning_status: 'not_studied' | 'learning' | 'mastered' | string;
+  status: CardStatus;
+  learning_status: LearningStatus;
   next_review?: string | null;
   last_reviewed?: string | null;
   user_note?: string | null;
@@ -121,8 +122,8 @@ export class FlashcardSvc {
         user_id: userId, card_id: card!.id,
         ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0,
         next_review: new Date().toISOString(), 
-        status: 'active',
-        learning_status: 'not_studied'
+        status: CardStatus.ACTIVE,
+        learning_status: LearningStatus.NOT_STUDIED
       });
       if (error) throw error;
     }
@@ -233,7 +234,7 @@ export class FlashcardSvc {
       last_reviewed: new Date().toISOString(),
       last_quality: quality,
       lapses: newLapses,
-      learning_status: sm.status,
+      learning_status: sm.status as LearningStatus,
     }).eq('user_id', userId).eq('card_id', cardId);
     if (upErr) throw upErr;
 

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { FlashcardSvc, CardState } from './FlashcardService';
 import { applySrs, Rating, SrsResult, SrsSettings, DEFAULT_SRS_SETTINGS } from './sm2';
 import { SrsSettingsSvc } from './SrsSettingsService';
+import { LearningStatus } from '../types/flashcards';
 
 const SESSION_KEY = (uid: string, mt: string) => `fc.session.${uid}.${mt}`;
 const STATE_KEY = (uid: string, cid: string) => `fc.state.${uid}.${cid}`;
@@ -117,7 +118,7 @@ export const FlashcardLocalCache = {
       repetitions: result.repetitions,
       lapses: result.lapses,
       learning_step: result.learning_step,
-      learning_status: result.status,
+      learning_status: result.status as LearningStatus,
       next_review: result.next_review.toISOString(),
       last_reviewed: new Date().toISOString(),
     }, { onConflict: 'user_id,card_id' }).then(() => this.flushOutbox(userId));
