@@ -107,6 +107,10 @@ export class FlashcardBranchService {
         }, { onConflict: 'user_id,card_id' }); // V9 constraint
 
         if (upsertErr) {
+          if (upsertErr.message.includes('user_id')) {
+            console.error(`[FlashcardBranchSvc] DATABASE OUTDATED: Please run 'supabase/hotfix-branch-userid.sql' in your SQL Editor.`);
+            return; // Stop sync, it won't work without this column
+          }
           console.error(`[FlashcardBranchSvc] Repair error for card ${uc.card_id}: ${upsertErr.message}`);
         } else {
           repaired++;
