@@ -14,7 +14,8 @@ import {
   Animated,
   Modal,
   Alert,
-  AppState
+  AppState,
+  RefreshControl
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
@@ -134,7 +135,7 @@ export default function FlashcardsDashboard() {
         setLoading(true);
       }
     } else {
-      setLoading(true);
+      setRefreshing(true);
     }
 
     try {
@@ -208,8 +209,13 @@ export default function FlashcardsDashboard() {
       console.error('Load data error:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
+
+  const onRefresh = useCallback(() => {
+    loadData(true);
+  }, [userId]);
 
   const toggleNode = async (item: TreeItem, forceExpand = false) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -427,7 +433,18 @@ export default function FlashcardsDashboard() {
   return (
     <PageWrapper>
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
-        <ScrollView stickyHeaderIndices={[0]} showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          stickyHeaderIndices={[0]} 
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh} 
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
             <View style={styles.headerTop}>
               <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Deck Hub</Text>
