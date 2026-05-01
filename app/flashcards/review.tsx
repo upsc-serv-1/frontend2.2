@@ -78,7 +78,9 @@ export default function ReviewScreen() {
       const srsSettings = await SrsSettingsSvc.load(session.user.id);
       setSettings(srsSettings);
 
-      const saved = await FlashcardLocalCache.loadSession(session.user.id, selectedMicrotopic as string);
+      const sessionKey = (branchId as string) || (selectedMicrotopic as string);
+      const saved = !selectedCardId ? await FlashcardLocalCache.loadSession(session.user.id, sessionKey) : null;
+      
       if (saved && saved.queueCardIds.length) {
         const { data } = await supabase.from('cards').select('*').in('id', saved.queueCardIds);
         const byId: Record<string, any> = {};
@@ -89,7 +91,7 @@ export default function ReviewScreen() {
         setIsFlipped(saved.flipped);
         flipAnim.setValue(saved.flipped ? 180 : 0);
         setLoading(false);
-        await FlashcardLocalCache.clearSession(session.user.id, selectedMicrotopic as string);
+        await FlashcardLocalCache.clearSession(session.user.id, sessionKey);
       } else {
         await loadQueue();
       }

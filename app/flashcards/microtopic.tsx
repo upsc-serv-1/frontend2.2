@@ -556,7 +556,13 @@ export default function MicrotopicModal() {
 
           router.push({
             pathname: '/flashcards/review',
-            params: { microtopic: currentMicrotopic, subject: currentSubject, section: currentSection, cardId: item.id },
+            params: { 
+              microtopic: currentMicrotopic, 
+              subject: currentSubject, 
+              section: currentSection, 
+              cardId: item.id,
+              branchId: branchId 
+            },
           });
         }}
       >
