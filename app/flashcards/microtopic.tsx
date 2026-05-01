@@ -756,7 +756,12 @@ export default function MicrotopicModal() {
               onPress={() =>
                 router.push({
                   pathname: '/flashcards/review',
-                  params: { microtopic: currentMicrotopic, subject: currentSubject, section: currentSection },
+                  params: { 
+                    microtopic: currentMicrotopic, 
+                    subject: currentSubject, 
+                    section: currentSection,
+                    branchId: branchId || undefined
+                  },
                 })
               }
             >
