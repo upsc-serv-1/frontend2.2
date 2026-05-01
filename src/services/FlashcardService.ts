@@ -138,6 +138,7 @@ export class FlashcardSvc {
       );
       
       await supabase.from('flashcard_branch_cards').upsert({
+        user_id: userId,
         branch_id: branchId,
         card_id: card!.id
       }, { onConflict: 'branch_id,card_id' });
@@ -324,11 +325,21 @@ export class FlashcardSvc {
 
     // IMPORTANT: Also update the branch mapping to point to the new clone
     try {
-      await supabase
+      const { error: brErr } = await supabase
         .from('flashcard_branch_cards')
         .update({ card_id: clone.id })
-        .eq('user_id', userId)
-        .eq('card_id', cardId);
+        .eq('card_id', cardId)
+        .eq('user_id', userId);
+      
+      if (brErr) {
+        console.warn('[FlashcardSvc] Branch mapping update failed (possibly missing user_id column):', brErr.message);
+        // Fallback: If update failed, syncHierarchy will eventually pick it up, 
+        // but we try to insert a new mapping just in case
+        await supabase.from('flashcard_branch_cards').insert({
+          card_id: clone.id,
+          user_id: userId
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error('[FlashcardSvc] Failed to update branch mapping during clone:', err);
     }

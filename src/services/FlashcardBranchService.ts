@@ -202,10 +202,12 @@ export class FlashcardBranchService {
     };
     findChildren(branchId);
 
+    // Only return cards that actually exist in the user's collection
     const { data: mappings } = await supabase
       .from('flashcard_branch_cards')
-      .select('card_id')
-      .in('branch_id', ids);
+      .select('card_id, user_cards!inner(id)')
+      .in('branch_id', ids)
+      .eq('user_id', userId);
     
     return Array.from(new Set(mappings?.map(m => m.card_id) || []));
   }
