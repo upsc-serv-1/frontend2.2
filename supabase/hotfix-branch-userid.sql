@@ -34,29 +34,34 @@ BEGIN
     ALTER TABLE public.flashcard_branch_cards DROP CONSTRAINT IF EXISTS flashcard_branch_cards_user_id_card_id_key;
     ALTER TABLE public.flashcard_branch_cards ADD CONSTRAINT flashcard_branch_cards_user_id_card_id_key UNIQUE (user_id, card_id);
 
-    -- 4. Add question_id to user_cards if missing
+    -- 4. Add question_id to user_cards if missing (as TEXT to support all ID types)
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name='user_cards' AND column_name='question_id'
     ) THEN
-        ALTER TABLE public.user_cards ADD COLUMN question_id UUID;
+        ALTER TABLE public.user_cards ADD COLUMN question_id TEXT;
+    ELSE
+        -- If it was created as UUID (from a previous failed hotfix run), convert to TEXT
+        ALTER TABLE public.user_cards ALTER COLUMN question_id TYPE TEXT;
     END IF;
 
     -- 5. Backfill question_id from cards table
     UPDATE public.user_cards uc
-    SET question_id = c.question_id::uuid
+    SET question_id = c.question_id
     FROM public.cards c
     WHERE uc.card_id = c.id
     AND uc.question_id IS NULL
-    AND c.question_id IS NOT NULL
-    AND c.question_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+    AND c.question_id IS NOT NULL;
 
-    -- 6. Add question_id to cards table if missing
+    -- 6. Add question_id to cards table if missing (as TEXT)
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name='cards' AND column_name='question_id'
     ) THEN
-        ALTER TABLE public.cards ADD COLUMN question_id UUID;
+        ALTER TABLE public.cards ADD COLUMN question_id TEXT;
+    ELSE
+        -- Ensure it's TEXT
+        ALTER TABLE public.cards ALTER COLUMN question_id TYPE TEXT;
     END IF;
 
 END $$;
