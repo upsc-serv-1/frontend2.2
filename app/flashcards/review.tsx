@@ -253,6 +253,7 @@ export default function ReviewScreen() {
       
       setIsFlipped(false);
       setShowCorrect(false);
+      setSelectedOption(null);
       flipAnim.setValue(0);
       setCurrentIndex(0); // Always point to the top of the sorted queue
       
@@ -658,6 +659,7 @@ export default function ReviewScreen() {
                             return (
                               <TouchableOpacity
                                 key={optionKey}
+                                delayPressIn={Platform.OS === 'android' ? 100 : 0}
                                 onPress={() => {
                                   if (!isFlipped && !showCorrect) {
                                     setSelectedOption(optionKey);
