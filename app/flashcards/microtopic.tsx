@@ -1,39 +1,36 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  FlatList, 
-  SafeAreaView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  SafeAreaView,
   ActivityIndicator,
   Dimensions,
-  Platform,
   TextInput,
   Modal,
   ScrollView,
   Alert,
-  RefreshControl
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { 
-  ArrowLeft, 
-  Play, 
-  Plus, 
-  BookOpen,
+import {
+  ArrowLeft,
+  Play,
+  Plus,
   SortAsc,
   SortDesc,
+  MoreHorizontal,
+  BookOpen,
   X,
-  Trash2,
-  Check
+  Check,
 } from 'lucide-react-native';
+import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
-import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
-import { supabase } from '../../src/lib/supabase';
-import * as Haptics from 'expo-haptics';
+import { CardOverflowMenu, CardMenuAction } from '../../src/components/flashcards/CardOverflowMenu';
 
 const { width } = Dimensions.get('window');
 
@@ -41,161 +38,114 @@ interface CardItem {
   id: string;
   front_text: string;
   back_text: string;
-  status: 'active' | 'frozen';
-  learning_status: 'not_studied' | 'learning' | 'review' | 'mastered' | 'leech';
+  status: 'active' | 'frozen' | 'deleted';
+  learning_status: 'not_studied' | 'learning' | 'mastered';
   next_review?: string;
   updated_at: string;
-  preview?: string;
-  user_note?: string;
 }
 
 export default function MicrotopicModal() {
   const { colors } = useTheme();
   const router = useRouter();
   const { session } = useAuth();
-  const { subject, section, microtopic, branchId, name: branchName } = useLocalSearchParams();
-  
+  const { subject, section, microtopic } = useLocalSearchParams();
+
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [cards, setCards] = useState<CardItem[]>([]);
   const [stats, setStats] = useState({ due: 0, new: 0, learning: 0, mastered: 0 });
   const [sortBy, setSortBy] = useState<'next' | 'newest' | 'oldest' | 'az'>('next');
   const [filterBy, setFilterBy] = useState<string>('all');
-  
+
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+
+  const [menuCard, setMenuCard] = useState<CardItem | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [menuBusy, setMenuBusy] = useState(false);
+
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const [editVisible, setEditVisible] = useState(false);
+  const [editFront, setEditFront] = useState('');
+  const [editBack, setEditBack] = useState('');
+
+  const [moveVisible, setMoveVisible] = useState(false);
+  const [moveSubject, setMoveSubject] = useState('');
+  const [moveSection, setMoveSection] = useState('');
+  const [moveMicrotopic, setMoveMicrotopic] = useState('');
 
   useEffect(() => {
     if (session?.user.id) loadCards();
-  }, [session, microtopic, branchId]);
+  }, [session, microtopic, subject, section]);
 
   const loadCards = async () => {
-    if (!refreshing) setLoading(true);
+    setLoading(true);
     try {
-      const userId = session!.user.id;
-      let base: any[] = [];
-      if (branchId) {
-        console.log(`[FlashcardDeck] Loading by Branch ID: ${branchId}`);
-        const cardIds = await FlashcardBranchService.getCardsRecursive(userId, branchId as string);
-        
-        if (cardIds.length > 0) {
-          const { data: cardsData, error: cardsError } = await supabase
-            .from('cards')
-            .select('*')
-            .in('id', cardIds);
-          if (cardsError) console.error('[FlashcardDeck] Cards Query Error:', cardsError);
-          base = cardsData || [];
-        }
-      } else {
-        const sSubject = (Array.isArray(subject) ? subject[0] : (subject as string)) || '';
-        const sTopic = (Array.isArray(microtopic) ? microtopic[0] : (microtopic as string)) || '';
-        const sSection = (Array.isArray(section) ? section[0] : (section as string)) || 'General';
+      // 1. Get cards in this microtopic
+      const { data: baseCards, error: bErr } = await supabase
+        .from('cards')
+        .select('*')
+        .eq('subject', subject)
+        .eq('section_group', section === 'General' ? null : section)
+        .eq('microtopic', microtopic);
 
-        console.log(`[FlashcardDeck] Cleaned Params: sub="${sSubject}", topic="${sTopic}", sec="${sSection}"`);
+      if (bErr) throw bErr;
 
-        // 1. Build Base Query
-        let baseQuery = supabase
-          .from('cards')
-          .select('*')
-          .ilike('subject', sSubject);
-
-        // Only add specific filters if they are provided
-        if (sTopic) {
-          baseQuery = baseQuery.ilike('microtopic', sTopic);
-        }
-        
-        if (sSection && sSection !== 'General') {
-          baseQuery = baseQuery.ilike('section_group', sSection);
-        }
-
-        const { data: legacyData, error: legacyError } = await baseQuery;
-        if (legacyError) console.error('[FlashcardDeck] Legacy Base Query Error:', legacyError);
-        base = legacyData || [];
-
-        if (base.length === 0) {
-          // Fallback check: list ANY microtopics for this subject to see casing/naming
-          const { data: topics } = await supabase.from('cards').select('microtopic').ilike('subject', sSubject).limit(10);
-          console.log(`[FlashcardDeck] Diagnostic: Top 10 topics for "${sSubject}":`, topics?.map(t => t.microtopic));
-        }
-      }
-
-      const { data: prog, error: progError } = await supabase
+      // 2. Get user's progress for these cards
+      const cardIds = (baseCards || []).map((c) => c.id);
+      const { data: progress, error: pErr } = await supabase
         .from('user_cards')
         .select('*')
-        .eq('user_id', userId);
+        .eq('user_id', session?.user.id)
+        .in('card_id', cardIds);
 
-      if (progError) console.error('[FlashcardDeck] Prog Query Error:', progError);
-      
-      console.log(`[FlashcardDeck] DB Results: base=${base.length}, user_cards=${prog.length}`);
-      
+      if (pErr) throw pErr;
 
-      const progByCardId: Record<string, any> = {};
-      prog.forEach((p: any) => (progByCardId[p.card_id] = p));
+      const progressMap = new Map();
+      progress?.forEach((p) => progressMap.set(p.card_id, p));
 
-      const merged: CardItem[] = base.map((bc: any) => {
-        const p = progByCardId[bc.id] || {};
+      const merged: CardItem[] = (baseCards || []).map((bc) => {
+        const p = progressMap.get(bc.id);
         return {
           id: bc.id,
-          front_text: bc.front_text || bc.question_text || '',
-          back_text:  bc.back_text  || bc.answer_text  || '',
-          status:     p.status     || 'active',
-          learning_status: p.learning_status || 'not_studied',
-          next_review: p.next_review,
-          updated_at:  p.updated_at || bc.created_at,
-          preview:     (p.user_note || bc.front_text || bc.question_text || '').slice(0, 80),
-          user_note:   p.user_note || '',
+          front_text: bc.front_text || bc.question_text || bc.question || '',
+          back_text: bc.back_text || bc.answer_text || bc.answer || '',
+          status: p?.status || 'active',
+          learning_status: p?.learning_status || 'not_studied',
+          next_review: p?.next_review,
+          updated_at: p?.updated_at || bc.created_at,
         };
       });
-      setCards(merged);
 
-      // Recompute tally directly from merged (avoids view-lag on just-linked cards)
-      const now = Date.now();
-      const activeCards = merged.filter(c => c.status !== 'deleted');
-      
-      console.log(`[FlashcardDeck] Stats check: Total=${merged.length}, Active=${activeCards.length}`);
-      const studied = activeCards.filter(c => c.learning_status !== 'not_studied');
-      if (studied.length > 0) {
-        console.log(`[FlashcardDeck] Studied cards detected:`, studied.map(c => ({ id: c.id, status: c.status, learning: c.learning_status, next: c.next_review })));
-      }
+      const visible = merged.filter((c) => c.status !== 'deleted');
+      setCards(visible);
 
+      // Calculate Stats (exclude deleted)
+      const now = new Date();
       setStats({
-        due:      activeCards.filter(c => {
-          const isDue = !c.next_review || new Date(c.next_review).getTime() <= now;
-          return isDue && c.status !== 'frozen';
-        }).length,
-        new:      activeCards.filter(c => !c.learning_status || c.learning_status === 'not_studied').length,
-        learning: activeCards.filter(c => c.learning_status === 'learning' || c.learning_status === 'review').length,
-        mastered: activeCards.filter(c => c.learning_status === 'mastered').length,
+        due: visible.filter((c) => c.status === 'active' && (!c.next_review || new Date(c.next_review) <= now)).length,
+        new: visible.filter((c) => c.learning_status === 'not_studied').length,
+        learning: visible.filter((c) => c.learning_status === 'learning').length,
+        mastered: visible.filter((c) => c.learning_status === 'mastered').length,
       });
     } catch (err) {
       console.error(err);
+      Alert.alert('Error', 'Could not load cards');
     } finally {
       setLoading(false);
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadCards();
-    setRefreshing(false);
-  };
-
   const filteredAndSortedCards = useMemo(() => {
-    let result = cards.filter(c => c.status !== 'deleted');
-    
+    let result = [...cards];
+
     // Filter
-    if (filterBy === 'all') {
-      // Show everything not deleted
-    } else if (filterBy === 'due') {
-      const now = Date.now();
-      result = result.filter(c => (!c.next_review || new Date(c.next_review).getTime() <= now) && c.status !== 'frozen');
-    } else if (filterBy === 'new') {
-      result = result.filter(c => !c.learning_status || c.learning_status === 'not_studied');
-    } else if (filterBy === 'learning') {
-      result = result.filter(c => c.learning_status === 'learning' || c.learning_status === 'review');
-    } else if (filterBy === 'mastered') {
-      result = result.filter(c => c.learning_status === 'mastered');
-    } else if (filterBy === 'frozen') {
-      result = result.filter(c => c.status === 'frozen');
+    if (filterBy !== 'all') {
+      if (filterBy === 'frozen') result = result.filter((c) => c.status === 'frozen');
+      else if (filterBy === 'not_studied') result = result.filter((c) => c.learning_status === 'not_studied' && c.status === 'active');
+      else result = result.filter((c) => c.learning_status === filterBy && c.status === 'active');
+    } else {
+      result = result.filter((c) => c.status === 'active');
     }
 
     // Sort
@@ -206,116 +156,234 @@ export default function MicrotopicModal() {
         return ad - bd;
       }
       if (sortBy === 'newest') return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      if (sortBy === 'oldest') return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+      if (sortBy === 'az') return a.front_text.localeCompare(b.front_text);
       return 0;
     });
 
     return result;
   }, [cards, sortBy, filterBy]);
 
-  const handleDeleteCard = async (cardId: string) => {
-    if (!session?.user.id) return;
-    
-    const confirmDelete = () => {
-      Alert.alert(
-        "Delete Card",
-        "Are you sure you want to remove this card from your deck? Your progress will be lost.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { 
-            text: "Delete", 
-            style: "destructive", 
-            onPress: async () => {
-              try {
-                await FlashcardSvc.deleteCard(session.user.id, cardId);
-                setCards(prev => prev.filter(c => c.id !== cardId));
-                
-                // Refresh stats to reflect deletion
-                const sec = (section as string) || 'General';
-                const summary = await FlashcardSvc.getDeckSummary(session.user.id, subject as string, sec, microtopic as string);
-                setStats({
-                  due: summary.due_count ?? 0,
-                  new: summary.new_count ?? 0,
-                  learning: summary.learning_count ?? 0,
-                  mastered: summary.mastered_count ?? 0,
-                });
+  const toggleSelected = (cardId: string) => {
+    setSelectionMode(true);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+  };
 
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-              } catch (err) {
-                console.error("Delete error:", err);
-                Alert.alert("Error", "Failed to delete card.");
-              }
-            }
-          }
-        ]
-      );
-    };
+  const openMenu = (card: CardItem) => {
+    setMenuCard(card);
+    setMenuVisible(true);
+  };
 
-    confirmDelete();
+  const closeMenu = () => {
+    setMenuVisible(false);
+    setMenuCard(null);
+  };
+
+  const openEdit = () => {
+    if (!menuCard) return;
+    setEditFront(menuCard.front_text || '');
+    setEditBack(menuCard.back_text || '');
+    setEditVisible(true);
+  };
+
+  const openMove = () => {
+    if (!menuCard) return;
+    setMoveSubject(String(subject || 'General'));
+    setMoveSection(String(section || 'General'));
+    setMoveMicrotopic(String(microtopic || 'General'));
+    setMoveVisible(true);
+  };
+
+  const handleMenuAction = async (action: CardMenuAction) => {
+    if (!menuCard || !session?.user?.id) return;
+    const uid = session.user.id;
+
+    try {
+      setMenuBusy(true);
+
+      switch (action) {
+        case 'select':
+          toggleSelected(menuCard.id);
+          closeMenu();
+          return;
+
+        case 'edit':
+          closeMenu();
+          openEdit();
+          return;
+
+        case 'freeze':
+          await FlashcardSvc.toggleFreeze(uid, menuCard.id, menuCard.status);
+          await loadCards();
+          closeMenu();
+          return;
+
+        case 'move':
+          closeMenu();
+          openMove();
+          return;
+
+        case 'reverse':
+          closeMenu();
+          Alert.alert('Reverse card?', 'Front and back will be swapped.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Reverse',
+              onPress: async () => {
+                try {
+                  await FlashcardSvc.reverseCardForUser(uid, menuCard.id);
+                  await loadCards();
+                } catch (err: any) {
+                  Alert.alert('Action failed', err?.message || 'Please try again');
+                }
+              },
+            },
+          ]);
+          return;
+
+        case 'duplicate':
+          await FlashcardSvc.duplicateCardForUser(uid, menuCard.id);
+          await loadCards();
+          closeMenu();
+          return;
+
+        case 'history':
+          closeMenu();
+          router.push({
+            pathname: '/flashcards/history',
+            params: { cardId: menuCard.id, title: menuCard.front_text?.slice(0, 40) || 'Card history' },
+          });
+          return;
+
+        case 'delete': {
+          const deletedId = menuCard.id;
+          closeMenu();
+          Alert.alert('Delete card?', 'You can undo immediately.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await FlashcardSvc.softDeleteCardForUser(uid, deletedId);
+                  await loadCards();
+                  Alert.alert('Deleted', 'Card removed.', [
+                    {
+                      text: 'Undo',
+                      onPress: async () => {
+                        try {
+                          await FlashcardSvc.restoreDeletedCardForUser(uid, deletedId);
+                          await loadCards();
+                        } catch (err: any) {
+                          Alert.alert('Undo failed', err?.message || 'Please try again');
+                        }
+                      },
+                    },
+                    { text: 'OK' },
+                  ]);
+                } catch (err: any) {
+                  Alert.alert('Action failed', err?.message || 'Please try again');
+                }
+              },
+            },
+          ]);
+          return;
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Action failed', err?.message || 'Please try again');
+    } finally {
+      setMenuBusy(false);
+    }
   };
 
   const renderCardItem = ({ item }: { item: CardItem }) => {
-    const showText = item.user_note?.trim()
-      ? item.user_note
-      : (item.preview || item.front_text || '').replace(/\n+/g, ' ');
-    const dueDate = item.next_review ? new Date(item.next_review) : null;
-    const daysUntil = dueDate ? Math.ceil((dueDate.getTime() - Date.now()) / 86400000) : null;
-    const dueLabel = daysUntil === null ? 'New'
-      : daysUntil <= 0 ? 'Due today'
-      : daysUntil === 1 ? 'Tomorrow'
-      : `in ${daysUntil}d`;
+    const isSelected = selectedIds.has(item.id);
 
     return (
-      <View style={[styles.cardItemContainer, { borderColor: colors.border }]}>
-        <TouchableOpacity
-          style={styles.cardItemMain}
-          onPress={() => router.push({
+      <TouchableOpacity
+        style={[
+          styles.cardItem,
+          { backgroundColor: colors.surface, borderColor: isSelected ? colors.primary : colors.border },
+          isSelected && { borderWidth: 2 },
+        ]}
+        onPress={() => {
+          if (selectionMode) {
+            toggleSelected(item.id);
+            return;
+          }
+
+          router.push({
             pathname: '/flashcards/review',
             params: { microtopic, subject, section, cardId: item.id },
-          })}
-        >
-          <View style={styles.cardTop}>
-            <View style={[styles.statusDot, {
-              backgroundColor:
-                item.status === 'frozen' ? '#94a3b8' :
-                item.learning_status === 'mastered' ? '#34c759' :
-                item.learning_status === 'learning' ? '#3b82f6' :
-                item.learning_status === 'leech' ? '#ef4444' : '#cbd5e1',
-            }]} />
-            <Text style={[styles.cardPreview, { color: colors.textPrimary }]} numberOfLines={2}>
-              {showText || 'Untitled card'}
-            </Text>
-          </View>
-          <View style={styles.cardBottom}>
-            <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
-              {item.learning_status.replace('_', ' ').toUpperCase()} • {dueLabel}
-            </Text>
-          </View>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.deleteCardBtn}
-          onPress={() => handleDeleteCard(item.id)}
-        >
-          <Trash2 size={18} color={colors.textTertiary} />
-        </TouchableOpacity>
-      </View>
+          });
+        }}
+      >
+        <View style={styles.cardTop}>
+          {selectionMode ? (
+            <View
+              style={[
+                styles.checkCircle,
+                {
+                  borderColor: isSelected ? colors.primary : colors.border,
+                  backgroundColor: isSelected ? colors.primary : 'transparent',
+                },
+              ]}
+            >
+              {isSelected && <Check size={12} color="#fff" />}
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor:
+                    item.learning_status === 'mastered'
+                      ? '#34c759'
+                      : item.learning_status === 'learning'
+                      ? '#3b82f6'
+                      : '#94a3b8',
+                },
+              ]}
+            />
+          )}
+
+          <Text style={[styles.cardPreview, { color: colors.textPrimary }]} numberOfLines={2}>
+            {item.front_text}
+          </Text>
+
+          <TouchableOpacity onPress={() => openMenu(item)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <MoreHorizontal size={18} color={colors.textTertiary} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.cardBottom}>
+          <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
+            {item.learning_status.toUpperCase()} • Next: {item.next_review ? new Date(item.next_review).toLocaleDateString() : 'New'}
+          </Text>
+        </View>
+      </TouchableOpacity>
     );
   };
 
   return (
     <PageWrapper>
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}> 
         {/* HEADER */}
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}> 
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <ArrowLeft size={24} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
-            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-              {branchName || microtopic || 'Microtopic Deck'}
+            <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+              {microtopic}
             </Text>
-            <Text style={[styles.headerSub, { color: colors.textTertiary }]}>
-              {microtopic ? `${subject} • ${section}` : (section ? subject : 'All Topics')}
+            <Text style={[styles.headerSub, { color: colors.textTertiary }]}> 
+              {subject} • {section}
             </Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddModalVisible(true)}>
@@ -323,134 +391,282 @@ export default function MicrotopicModal() {
           </TouchableOpacity>
         </View>
 
-        <FlatList
-          ListHeaderComponent={
-            <View>
-              {/* STATS & PROGRESS */}
-              <View style={styles.statsPanel}>
-                <View style={styles.statsRow}>
-                  <StatItem label="Due" value={stats.due} color={colors.primary} />
-                  <StatItem label="New" value={stats.new} color={colors.textTertiary} />
-                  <StatItem label="Learning" value={stats.learning} color="#3b82f6" />
-                  <StatItem label="Mastered" value={stats.mastered} color="#34c759" />
-                </View>
-                
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${(stats.mastered / (cards.length || 1)) * 100}%`, backgroundColor: '#34c759' }]} />
-                    <View style={[styles.progressFill, { width: `${(stats.learning / (cards.length || 1)) * 100}%`, backgroundColor: '#3b82f6' }]} />
-                  </View>
-                  <Text style={[styles.progressText, { color: colors.textTertiary }]}>
-                    {stats.mastered} of {cards.length} cards mastered
-                  </Text>
-                </View>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* STATS & PROGRESS */}
+          <View style={styles.statsPanel}>
+            <View style={styles.statsRow}>
+              <StatItem label="Due" value={stats.due} color={colors.primary} />
+              <StatItem label="New" value={stats.new} color={colors.textTertiary} />
+              <StatItem label="Learning" value={stats.learning} color="#3b82f6" />
+              <StatItem label="Mastered" value={stats.mastered} color="#34c759" />
+            </View>
 
-                {stats.due === 0 && (
-                  <View style={{ alignItems: 'center', marginBottom: 24, padding: 20, backgroundColor: colors.primary + '10', borderRadius: 24, borderWidth: 1, borderColor: colors.primary + '20' }}>
-                    <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                      <Check size={28} color="#fff" strokeWidth={3} />
-                    </View>
-                    <Text style={{ fontSize: 20, fontWeight: '900', color: colors.textPrimary, marginBottom: 8 }}>All done for now!</Text>
-                    <Text style={{ fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 18 }}>
-                      You've reviewed all scheduled cards. Check back later or add new ones to continue!
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity 
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View
                   style={[
-                    styles.studyBtn, 
-                    { backgroundColor: colors.primary },
-                    stats.due === 0 && { backgroundColor: colors.surfaceStrong, opacity: 0.6 }
+                    styles.progressFill,
+                    { width: `${(stats.mastered / (cards.length || 1)) * 100}%`, backgroundColor: '#34c759' },
                   ]}
-                  disabled={stats.due === 0}
-                  onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section, mode: 'due' } })}
+                />
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${(stats.learning / (cards.length || 1)) * 100}%`, backgroundColor: '#3b82f6' },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.progressText, { color: colors.textTertiary }]}> 
+                {stats.mastered} of {cards.length} cards mastered
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.studyBtn, { backgroundColor: colors.primary }]}
+              onPress={() => router.push({ pathname: '/flashcards/review', params: { microtopic, subject, section } })}
+            >
+              <Play size={20} color="#fff" fill="#fff" />
+              <Text style={styles.studyBtnText}>Study Cards</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* FILTERS & LIST */}
+          <View style={styles.listSection}>
+            {selectionMode && (
+              <View style={styles.selectionBar}>
+                <Text style={[styles.selectionCount, { color: colors.textSecondary }]}>{selectedIds.size} selected</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectionMode(false);
+                    setSelectedIds(new Set());
+                  }}
                 >
-                  <Play size={20} color={stats.due === 0 ? colors.textTertiary : "#fff"} fill={stats.due === 0 ? colors.textTertiary : "#fff"} />
-                  <Text style={[styles.studyBtnText, stats.due === 0 && { color: colors.textTertiary }]}>Study Cards</Text>
+                  <Text style={[styles.doneText, { color: colors.primary }]}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.listHeader}>
+              <View style={styles.filterRow}>
+                <TouchableOpacity
+                  style={[styles.filterChip, filterBy === 'all' && { backgroundColor: colors.primary }]}
+                  onPress={() => setFilterBy('all')}
+                >
+                  <Text style={[styles.filterText, filterBy === 'all' && { color: '#fff' }]}>Active</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterChip, filterBy === 'not_studied' && { backgroundColor: '#94a3b8' }]}
+                  onPress={() => setFilterBy('not_studied')}
+                >
+                  <Text style={[styles.filterText, filterBy === 'not_studied' && { color: '#fff' }]}>New</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterChip, filterBy === 'mastered' && { backgroundColor: '#34c759' }]}
+                  onPress={() => setFilterBy('mastered')}
+                >
+                  <Text style={[styles.filterText, filterBy === 'mastered' && { color: '#fff' }]}>Mastered</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterChip, filterBy === 'frozen' && { backgroundColor: '#ef4444' }]}
+                  onPress={() => setFilterBy('frozen')}
+                >
+                  <Text style={[styles.filterText, filterBy === 'frozen' && { color: '#fff' }]}>Frozen</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* FILTERS & LIST */}
-              <View style={styles.listSection}>
-                <View style={styles.listHeader}>
-                  <View style={styles.filterRow}>
-                    <TouchableOpacity style={[styles.filterChip, filterBy === 'all' && { backgroundColor: colors.primary }]} onPress={() => setFilterBy('all')}>
-                      <Text style={[styles.filterText, filterBy === 'all' && { color: '#fff' }]}>All Active</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.filterChip, filterBy === 'due' && { backgroundColor: '#f59e0b' }]} onPress={() => setFilterBy('due')}>
-                      <Text style={[styles.filterText, filterBy === 'due' && { color: '#fff' }]}>Due</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.filterChip, filterBy === 'new' && { backgroundColor: '#94a3b8' }]} onPress={() => setFilterBy('new')}>
-                      <Text style={[styles.filterText, filterBy === 'new' && { color: '#fff' }]}>New</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.filterChip, filterBy === 'learning' && { backgroundColor: '#3b82f6' }]} onPress={() => setFilterBy('learning')}>
-                      <Text style={[styles.filterText, filterBy === 'learning' && { color: '#fff' }]}>Learning</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.filterChip, filterBy === 'mastered' && { backgroundColor: '#34c759' }]} onPress={() => setFilterBy('mastered')}>
-                      <Text style={[styles.filterText, filterBy === 'mastered' && { color: '#fff' }]}>Mastered</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.filterChip, filterBy === 'frozen' && { backgroundColor: '#ef4444' }]} onPress={() => setFilterBy('frozen')}>
-                      <Text style={[styles.filterText, filterBy === 'frozen' && { color: '#fff' }]}>Frozen</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <TouchableOpacity style={styles.sortBtn} onPress={() => setSortBy(sortBy === 'next' ? 'newest' : 'next')}>
-                    {sortBy === 'next' ? <SortAsc size={18} color={colors.textTertiary} /> : <SortDesc size={18} color={colors.textTertiary} />}
-                  </TouchableOpacity>
-                </View>
-              </View>
+              <TouchableOpacity style={styles.sortBtn} onPress={() => setSortBy(sortBy === 'next' ? 'newest' : 'next')}>
+                {sortBy === 'next' ? (
+                  <SortAsc size={18} color={colors.textTertiary} />
+                ) : (
+                  <SortDesc size={18} color={colors.textTertiary} />
+                )}
+              </TouchableOpacity>
             </View>
-          }
-          data={filteredAndSortedCards}
-          keyExtractor={item => item.id}
-          renderItem={renderCardItem}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-          ListEmptyComponent={
-            loading ? (
+
+            {loading ? (
               <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
             ) : (
-              <View style={styles.empty}>
-                <BookOpen size={48} color={colors.border} />
-                <Text style={{ color: colors.textTertiary, marginTop: 12 }}>No cards match your filter</Text>
-              </View>
-            )
-          }
-        />
+              <FlatList
+                data={filteredAndSortedCards}
+                keyExtractor={(item) => item.id}
+                renderItem={renderCardItem}
+                scrollEnabled={false}
+                ListEmptyComponent={
+                  <View style={styles.empty}>
+                    <BookOpen size={48} color={colors.border} />
+                    <Text style={{ color: colors.textTertiary, marginTop: 12 }}>No cards match your filter</Text>
+                  </View>
+                }
+              />
+            )}
+          </View>
+        </ScrollView>
 
         {/* ADD CARDS MODAL */}
         <Modal visible={isAddModalVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '90%' }]}>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '90%' }]}> 
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add to {microtopic}</Text>
-                <TouchableOpacity onPress={() => setIsAddModalVisible(false)}><X size={24} color={colors.textPrimary} /></TouchableOpacity>
+                <TouchableOpacity onPress={() => setIsAddModalVisible(false)}>
+                  <X size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
               </View>
-              
-              <Text style={{ color: colors.textTertiary, marginBottom: 20 }}>Select questions to convert into flashcards.</Text>
-              
+
+              <Text style={{ color: colors.textTertiary, marginBottom: 20 }}> 
+                Select questions to convert into flashcards.
+              </Text>
+
               <FlatList
-                data={cards.filter(c => c.learning_status === 'not_studied')} // Placeholder for provider filtering
-                keyExtractor={item => item.id}
+                data={cards.filter((c) => c.learning_status === 'not_studied')}
+                keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
-                  <TouchableOpacity style={[styles.selectableItem, { borderColor: colors.border }]}>
-                    <Text style={[styles.selectableText, { color: colors.textPrimary }]} numberOfLines={2}>{item.front_text}</Text>
+                  <TouchableOpacity style={[styles.selectableItem, { borderColor: colors.border }]}> 
+                    <Text style={[styles.selectableText, { color: colors.textPrimary }]} numberOfLines={2}>
+                      {item.front_text}
+                    </Text>
                     <View style={[styles.checkbox, { borderColor: colors.primary }]} />
                   </TouchableOpacity>
                 )}
-                ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 40, color: colors.textTertiary }}>No new questions available in this topic.</Text>}
+                ListEmptyComponent={
+                  <Text style={{ textAlign: 'center', marginTop: 40, color: colors.textTertiary }}>
+                    No new questions available in this topic.
+                  </Text>
+                }
               />
-              
-              <TouchableOpacity style={[styles.studyBtn, { backgroundColor: colors.primary, marginTop: 20 }]} onPress={() => setIsAddModalVisible(false)}>
+
+              <TouchableOpacity
+                style={[styles.studyBtn, { backgroundColor: colors.primary, marginTop: 20 }]}
+                onPress={() => setIsAddModalVisible(false)}
+              >
                 <Text style={styles.studyBtnText}>Add Selected Cards</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* OVERFLOW MENU */}
+        <CardOverflowMenu
+          visible={menuVisible}
+          frozen={menuCard?.status === 'frozen'}
+          busy={menuBusy}
+          onClose={closeMenu}
+          onAction={handleMenuAction}
+        />
+
+        {/* EDIT MODAL */}
+        <Modal visible={editVisible} transparent animationType="slide" onRequestClose={() => setEditVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '70%' }]}> 
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Edit Card</Text>
+                <TouchableOpacity onPress={() => setEditVisible(false)}>
+                  <X size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ color: colors.textSecondary, marginBottom: 6 }}>Front</Text>
+              <TextInput
+                value={editFront}
+                onChangeText={setEditFront}
+                multiline
+                style={[
+                  styles.noteInput,
+                  { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg, height: 120 },
+                ]}
+              />
+
+              <Text style={{ color: colors.textSecondary, marginBottom: 6, marginTop: 14 }}>Back</Text>
+              <TextInput
+                value={editBack}
+                onChangeText={setEditBack}
+                multiline
+                style={[
+                  styles.noteInput,
+                  { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg, height: 120 },
+                ]}
+              />
+
+              <TouchableOpacity
+                style={[styles.studyBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+                onPress={async () => {
+                  if (!menuCard || !session?.user?.id) return;
+                  if (!editFront.trim() || !editBack.trim()) {
+                    return Alert.alert('Validation', 'Front and back are required');
+                  }
+
+                  try {
+                    await FlashcardSvc.updateCardForUser(session.user.id, menuCard.id, {
+                      front_text: editFront.trim(),
+                      back_text: editBack.trim(),
+                    });
+                    setEditVisible(false);
+                    await loadCards();
+                  } catch (err: any) {
+                    Alert.alert('Save failed', err?.message || 'Please try again');
+                  }
+                }}
+              >
+                <Text style={styles.studyBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MOVE MODAL */}
+        <Modal visible={moveVisible} transparent animationType="slide" onRequestClose={() => setMoveVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '62%' }]}> 
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Move Card</Text>
+                <TouchableOpacity onPress={() => setMoveVisible(false)}>
+                  <X size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ color: colors.textSecondary, marginBottom: 6 }}>Subject</Text>
+              <TextInput
+                value={moveSubject}
+                onChangeText={setMoveSubject}
+                style={[styles.noteInput, { height: 48, color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
+              />
+
+              <Text style={{ color: colors.textSecondary, marginBottom: 6, marginTop: 10 }}>Section</Text>
+              <TextInput
+                value={moveSection}
+                onChangeText={setMoveSection}
+                style={[styles.noteInput, { height: 48, color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
+              />
+
+              <Text style={{ color: colors.textSecondary, marginBottom: 6, marginTop: 10 }}>Microtopic</Text>
+              <TextInput
+                value={moveMicrotopic}
+                onChangeText={setMoveMicrotopic}
+                style={[styles.noteInput, { height: 48, color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bg }]}
+              />
+
+              <TouchableOpacity
+                style={[styles.studyBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+                onPress={async () => {
+                  if (!menuCard || !session?.user?.id) return;
+                  if (!moveSubject.trim() || !moveSection.trim() || !moveMicrotopic.trim()) {
+                    return Alert.alert('Validation', 'All fields are required');
+                  }
+
+                  try {
+                    await FlashcardSvc.moveCardForUser(session.user.id, menuCard.id, {
+                      subject: moveSubject,
+                      section_group: moveSection,
+                      microtopic: moveMicrotopic,
+                    });
+                    setMoveVisible(false);
+                    await loadCards();
+                  } catch (err: any) {
+                    Alert.alert('Move failed', err?.message || 'Please try again');
+                  }
+                }}
+              >
+                <Text style={styles.studyBtnText}>Move</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -487,33 +703,36 @@ const styles = StyleSheet.create({
   progressBar: { height: 8, backgroundColor: '#f1f5f9', borderRadius: 4, flexDirection: 'row', overflow: 'hidden' },
   progressFill: { height: '100%' },
   progressText: { fontSize: 12, marginTop: 8, fontWeight: '600', textAlign: 'center' },
-  studyBtn: { height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, elevation: 4 },
+  studyBtn: {
+    height: 56,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    elevation: 4,
+  },
   studyBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   listSection: { flex: 1, paddingHorizontal: 20 },
+  selectionBar: { marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  selectionCount: { fontWeight: '700' },
+  doneText: { fontWeight: '800' },
   listHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   filterRow: { flexDirection: 'row', gap: 8 },
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: '#f1f5f9' },
   filterText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
   sortBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9' },
-  cardItemContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    borderRadius: 16, 
-    borderWidth: 1, 
-    marginBottom: 10,
-    overflow: 'hidden'
-  },
-  cardItemMain: { 
-    flex: 1,
-    padding: 16,
-  },
-  deleteCardBtn: {
-    padding: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  cardItem: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 10 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
+  checkCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cardPreview: { flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 20 },
   cardBottom: { marginTop: 10, paddingLeft: 20 },
   cardMeta: { fontSize: 11, fontWeight: '700' },
@@ -522,7 +741,16 @@ const styles = StyleSheet.create({
   modalContent: { borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 20, fontWeight: '900' },
-  selectableItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 10, gap: 12 },
+  selectableItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 10,
+    gap: 12,
+  },
   selectableText: { flex: 1, fontSize: 14, fontWeight: '600' },
-  checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 2 }
+  checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 2 },
+  noteInput: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
 });

@@ -1,16 +1,8 @@
 import { supabase } from '../lib/supabase';
-import { FlashcardBranchService } from './FlashcardBranchService';
 import { applySM2 } from './sm2';
-import { FlashcardLocalCache } from './FlashcardLocalCache';
 
 export type CardSource =
-  | {
-      kind: 'question';
-      question_id: string;
-      options?: Record<string, string>;
-      correct_answer?: string | null;
-      explanation_markdown?: string | null;
-    }
+  | { kind: 'question'; question_id: string }
   | { kind: 'note'; note_id: string; block_id?: string }
   | { kind: 'manual' };
 
@@ -28,33 +20,21 @@ export interface NewCardInput {
   test_id?: string | null;
 }
 
-export type LearningStatus = 'not_studied' | 'learning' | 'review' | 'mastered' | 'leech';
-
 export interface CardState {
-  user_id: string;
-  card_id: string;
-  status: 'active' | 'frozen';
-  ease_factor: number;
-  interval_days: number;
-  repetitions: number;
-  next_review: string;
-  last_reviewed?: string;
-  learning_status: LearningStatus;
-  again_count: number;
-  lapses: number;
-  user_note: string;
-  times_seen: number;
-}
-
-export interface InstituteSource {
-  institute: string;
-  year?: number;
-  test_id?: string;
-  correct?: string;
+  status: 'active' | 'frozen' | 'deleted' | string;
+  learning_status: 'not_studied' | 'learning' | 'mastered' | string;
+  next_review?: string | null;
+  last_reviewed?: string | null;
+  user_note?: string | null;
+  repetitions?: number;
+  interval_days?: number;
+  ease_factor?: number;
+  lapses?: number;
+  last_quality?: number | null;
 }
 
 export class FlashcardSvc {
-  // ============ SUBJECT/DECK READS ============
+  // ============ SUBJECT/DECK READS (unchanged behaviour) ============
   static async getSubjects(userId: string) {
     const { data, error } = await supabase
       .from('user_cards').select('cards(subject)').eq('user_id', userId);
@@ -89,11 +69,8 @@ export class FlashcardSvc {
   static async getDueCards(userId: string, limit = 50) {
     const { data, error } = await supabase
       .from('user_cards').select('*, cards!inner(*)')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .lte('next_review', new Date().toISOString())
-      .order('next_review', { ascending: true })
-      .limit(limit);
+      .eq('user_id', userId).lte('next_review', new Date().toISOString())
+      .order('next_review', { ascending: true }).limit(limit);
     if (error) throw error;
     return (data ?? []).map((d: any) => ({ ...d.cards, ...d, id: d.card_id }));
   }
@@ -103,6 +80,7 @@ export class FlashcardSvc {
     if (!input.front_text?.trim()) throw new Error('Front text required');
     if (!input.back_text?.trim()) throw new Error('Back text required');
 
+    // Try to dedupe by source.question_id when present
     let card: { id: string } | null = null;
     if (input.question_id) {
       const { data } = await supabase.from('cards').select('id').eq('question_id', input.question_id).maybeSingle();
@@ -124,182 +102,53 @@ export class FlashcardSvc {
           card_type: input.card_type || 'manual',
           source: input.source || {},
           test_id: input.test_id || 'manual',
+          // legacy fields kept for backward compat:
           question_text: input.front_text,
           answer_text: input.back_text,
         })
-        .select('id')
-        .single();
+        .select('id').single();
       if (error) throw error;
       card = data;
     }
 
-    await this.linkUserCard(userId, card!.id, {
-      subject: input.subject,
-      section: input.section_group,
-      microtopic: input.microtopic
-    });
+    // Link in user_cards (idempotent)
+    const { data: existing } = await supabase
+      .from('user_cards').select('id').eq('user_id', userId).eq('card_id', card!.id).maybeSingle();
+    if (!existing) {
+      const { error } = await supabase.from('user_cards').insert({
+        user_id: userId, card_id: card!.id,
+        ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0,
+        next_review: new Date().toISOString(), status: 'new',
+      });
+      if (error) throw error;
+    }
+
     return card!.id;
   }
 
-  // ============ CREATE FROM QUIZ QUESTION (req #1, #2, #3) ============
+  // ============ CREATE FROM QUIZ QUESTION (FIX #1) ============
+  // Front = Question stem + options (a) ... (d)
+  // Back  = Correct answer line + Explanation markdown
   static async createFromQuestion(userId: string, q: any) {
-    const rawOptions = q.options ?? q.question_options ?? {};
-    const parsedOptions = (() => {
-      if (typeof rawOptions === 'string') {
-        try {
-          return JSON.parse(rawOptions);
-        } catch {
-          return {};
-        }
-      }
-      return rawOptions;
-    })();
+    const opts = q.options ?? {};
+    const optionLines = Object.entries(opts).map(([k, v]) => `(${k.toUpperCase()}) ${v}`).join('\n');
+    const front_text = `${q.question_text || q.questionText || ''}\n\n${optionLines}`.trim();
 
-    // Normalize options to a consistent object shape: { A: '...', B: '...' }
-    const opts: Record<string, string> = Array.isArray(parsedOptions)
-      ? parsedOptions.reduce((acc: Record<string, string>, value: any, idx: number) => {
-          const key = String.fromCharCode(65 + idx);
-          acc[key] = String(value ?? '').trim();
-          return acc;
-        }, {})
-      : Object.entries(parsedOptions || {}).reduce((acc: Record<string, string>, [k, v]) => {
-          acc[String(k).trim().toUpperCase()] = String(v ?? '').trim();
-          return acc;
-        }, {});
-
-    const stmt = q.statement_line || (Array.isArray(q.statement_lines) ? q.statement_lines.join('\n') : q.statement_lines || '');
-
-    // Ensure we actually have options text to show
-    const optionEntries = Object.entries(opts);
-    const optionLines = optionEntries.length > 0
-      ? optionEntries.map(([k, v]) => `(${k}) ${v}`).join('\n')
-      : '';
-
-    // Deduplicate question_text and stmt to avoid double-printing
-    const qText = (q.question_text || q.questionText || '').trim();
-    const sText = (stmt || '').trim();
-
-    const parts = [qText];
-    if (sText && sText !== qText) {
-      parts.push(sText);
-    }
-    // We DON'T add optionLines here anymore because they will be rendered as buttons
-    const front_text = parts
-      .filter(Boolean)
-      .join('\n\n')
-      .trim();
-
-    const correctKey = (q.correct_answer || q.correctAnswer || '').toString().trim().toUpperCase();
-    const correctText = correctKey && opts[correctKey]
-      ? `**Correct: (${correctKey})** ${opts[correctKey]}`
-      : '';
+    const correctKey = q.correct_answer || q.correctAnswer;
+    const correctText = correctKey && opts[correctKey] ? `**Correct: (${correctKey.toUpperCase()})** ${opts[correctKey]}` : '';
     const explanation = q.explanation_markdown || q.explanation || '';
-    
-    const instituteSrc: InstituteSource = {
-      institute: q.institute || q.tests?.institute || q.provider || 'Unknown',
-      year: q.exam_year || q.year,
-      test_id: q.test_id || q.testId || q.tests?.id,
-      correct: correctKey,
-    };
+    const back_text = [correctText, explanation].filter(Boolean).join('\n\n');
 
-    // Construct the "Source" line for the back
-    const sourceLine = `📍 ${instituteSrc.institute}${instituteSrc.year ? ` ${instituteSrc.year}` : ''}${instituteSrc.correct ? ` (Ans: ${instituteSrc.correct.toUpperCase()})` : ''}`;
-    const back_text = [sourceLine, correctText, explanation].filter(Boolean).join('\n\n');
-
-    const sourcePayload: CardSource = {
-      kind: 'question',
+    return this.createCard(userId, {
+      front_text, back_text,
+      subject: q.subject || 'General',
+      section_group: q.section_group || 'General',
+      microtopic: q.micro_topic || q.microtopic || 'General',
+      card_type: 'qa',
       question_id: q.id,
-      options: opts,
-      correct_answer: correctKey || null,
-      explanation_markdown: explanation || null,
-    };
-
-    let card: {
-      id: string;
-      institutes?: any[];
-      merged_from?: any[];
-      back_text?: string;
-      front_text?: string;
-      source?: any;
-    } | null = null;
-
-    if (q.id) {
-      const { data } = await supabase
-        .from('cards')
-        .select('id, institutes, merged_from, back_text, front_text, source')
-        .eq('question_id', q.id)
-        .maybeSingle();
-      if (data) card = data as any;
-    }
-
-    if (card) {
-      const existing = Array.isArray(card.institutes) ? card.institutes : [];
-      const alreadyPresent = existing.some((i: InstituteSource) =>
-        i.institute === instituteSrc.institute && i.year === instituteSrc.year
-      );
-
-      const shouldUpdateFront = !card.front_text || card.front_text.length < front_text.length;
-      const newInstitutes = alreadyPresent ? existing : [...existing, instituteSrc];
-      const mergedSource = { ...(card.source || {}), ...sourcePayload };
-
-      const updateData: any = {
-        source: mergedSource,
-      };
-
-      if (!alreadyPresent || shouldUpdateFront) {
-        // Merge the source labels into the back text so they appear in the UI
-        const allSources = newInstitutes
-          .map(i => `• ${i.institute}${i.year ? ` ${i.year}` : ''}${i.correct ? ` (${i.correct.toUpperCase()})` : ''}`)
-          .join('  ');
-        const updatedBack = `**Merged Sources:**\n${allSources}\n\n${card.back_text || back_text}`;
-
-        updateData.institutes = newInstitutes;
-        updateData.merged_from = alreadyPresent ? card.merged_from : [...(card.merged_from || []), q.id];
-        updateData.back_text = updatedBack;
-        updateData.front_text = shouldUpdateFront ? front_text : card.front_text;
-        updateData.answer_text = updatedBack;
-        updateData.question_text = shouldUpdateFront ? front_text : card.front_text;
-      }
-
-      await supabase.from('cards').update(updateData).eq('id', card.id);
-
-      await this.linkUserCard(userId, card.id, {
-        subject: q.subject,
-        section: q.section_group,
-        microtopic: q.micro_topic || q.microtopic
-      });
-      return card.id;
-    }
-
-    const { data: inserted, error } = await supabase
-      .from('cards')
-      .insert({
-        question_id: q.id || `manual_${Date.now()}`,
-        subject: q.subject || 'General',
-        section_group: q.section_group || 'General',
-        microtopic: q.micro_topic || q.microtopic || 'General',
-        front_text,
-        back_text,
-        card_type: 'qa',
-        source: sourcePayload,
-        test_id: q.test_id || q.testId || q.tests?.id || 'manual',
-        correct_answer: correctKey,
-        question_text: front_text,
-        answer_text: back_text,
-        institutes: [instituteSrc],
-        primary_institute: instituteSrc.institute,
-        merged_from: [q.id],
-      })
-      .select('id')
-      .single();
-
-    if (error) throw error;
-    await this.linkUserCard(userId, inserted.id, {
-      subject: q.subject,
-      section: q.section_group,
-      microtopic: q.micro_topic || q.microtopic
+      test_id: q.test_id || q.testId || q.tests?.id || 'manual',
+      source: { kind: 'question', question_id: q.id },
     });
-    return inserted.id;
   }
 
   /** @deprecated use createFromQuestion */
@@ -307,72 +156,21 @@ export class FlashcardSvc {
     return this.createFromQuestion(userId, q);
   }
 
-  private static async linkUserCard(userId: string, cardId: string, metadata?: { subject?: string, section?: string, microtopic?: string }) {
-    const { data: existing } = await supabase
-      .from('user_cards')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('card_id', cardId)
-      .maybeSingle();
-
-    if (!existing) {
-      const { error } = await supabase.from('user_cards').insert({
-        user_id: userId,
-        card_id: cardId,
-        ease_factor: 2.5,
-        interval_days: 0,
-        repetitions: 0,
-        lapses: 0,
-        next_review: new Date().toISOString(),
-        status: 'active',
-        learning_status: 'not_studied',
-        user_note: '',
-        times_seen: 0,
-      });
-
-      if (error) throw error;
-    }
-
-    // Also link to default branch
-    if (metadata) {
-      try {
-        const branchId = await FlashcardBranchService.ensureDefaultBranch(
-          userId, 
-          metadata.subject || 'General', 
-          metadata.section || 'General', 
-          metadata.microtopic || 'General'
-        );
-        await supabase.from('flashcard_branch_cards').upsert({
-          branch_id: branchId,
-          card_id: cardId
-        }, { onConflict: 'branch_id,card_id' });
-      } catch (err) {
-        console.error('Failed to link branch:', err);
-      }
-    }
-  }
-
-  // ============ CREATE FROM NOTE BLOCK ============
+  // ============ CREATE FROM NOTE BLOCK (Step 12) ============
   static async createFromNoteBlock(userId: string, params: {
     note_id: string;
     block_id?: string;
     front_text: string;
     back_text: string;
-    subject?: string;
-    section_group?: string;
-    microtopic?: string;
-    front_image_url?: string | null;
-    back_image_url?: string | null;
+    subject?: string; section_group?: string; microtopic?: string;
+    front_image_url?: string | null; back_image_url?: string | null;
   }) {
     return this.createCard(userId, {
       front_text: params.front_text,
       back_text: params.back_text,
-      subject: params.subject,
-      section_group: params.section_group,
-      microtopic: params.microtopic,
+      subject: params.subject, section_group: params.section_group, microtopic: params.microtopic,
       card_type: 'note_block',
-      front_image_url: params.front_image_url,
-      back_image_url: params.back_image_url,
+      front_image_url: params.front_image_url, back_image_url: params.back_image_url,
       source: { kind: 'note', note_id: params.note_id, block_id: params.block_id },
     });
   }
@@ -386,84 +184,27 @@ export class FlashcardSvc {
     if (error) throw error;
   }
 
-  static async deleteCard(userId: string, cardId: string) {
-    // 1. Force delete any existing progress/state for this card
-    console.log(`[FlashcardSvc] Deleting user_cards entries: user=${userId}, card=${cardId}`);
-    const { error: deleteErr, count } = await supabase
-      .from('user_cards')
-      .delete({ count: 'exact' })
-      .match({ user_id: userId, card_id: cardId });
-      
-    if (deleteErr) {
-      console.error('[FlashcardSvc] user_cards delete error:', deleteErr);
-      throw deleteErr;
-    }
-    console.log(`[FlashcardSvc] Deleted ${count} existing user_cards rows.`);
-
-    // 2. Check if this is a manual card (not a shared question) and delete from cards too if so
-    const { data: cardData } = await supabase
-      .from('cards')
-      .select('card_type, question_id')
-      .eq('id', cardId)
-      .single();
-
-    if (cardData && (cardData.card_type === 'manual' || cardData.question_id?.startsWith('manual_'))) {
-      console.log(`[FlashcardSvc] Deleting master manual card: ${cardId}`);
-      await supabase.from('cards').delete().eq('id', cardId);
-    } else {
-      // For shared cards, insert a 'deleted' marker so it stays hidden from lists and counts
-      console.log(`[FlashcardSvc] Inserting deleted marker for shared card: ${cardId}`);
-      await supabase.from('user_cards').insert({
-        user_id: userId,
-        card_id: cardId,
-        status: 'deleted',
-        updated_at: new Date().toISOString()
-      });
-    }
-    
-    // 3. Clear from local cache
-    try {
-      await FlashcardLocalCache.clearCardState(userId, cardId);
-    } catch (e) {}
+  static async deleteCardForUser(userId: string, cardId: string) {
+    const { error } = await supabase.from('user_cards').delete().eq('user_id', userId).eq('card_id', cardId);
+    if (error) throw error;
   }
 
-  // ============ REVIEW (SM-2 + bucket updates) ============
+  // ============ REVIEW (FIX #3 — proper SM-2) ============
   static async reviewCard(userId: string, cardId: string, quality: number) {
-    const { data: existing, error } = await supabase
-      .from('user_cards')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('card_id', cardId)
-      .maybeSingle();
-
+    const { data: cur, error } = await supabase
+      .from('user_cards').select('*').eq('user_id', userId).eq('card_id', cardId).single();
     if (error) throw error;
 
-    let cur = existing;
-    if (!cur) {
-      await this.linkUserCard(userId, cardId);
-      const { data: seeded, error: seedErr } = await supabase
-        .from('user_cards')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('card_id', cardId)
-        .single();
-      if (seedErr) throw seedErr;
-      cur = seeded;
-    }
-
-    const sm = applySM2(
-      {
-        ease_factor: Number(cur.ease_factor ?? 2.5),
-        interval_days: Number(cur.interval_days ?? 0),
-        repetitions: Number(cur.repetitions ?? 0),
-        quality,
-      },
-      Number(cur.lapses ?? 0)
-    );
+    const sm = applySM2({
+      ease_factor: Number(cur.ease_factor ?? 2.5),
+      interval_days: Number(cur.interval_days ?? 0),
+      repetitions: Number(cur.repetitions ?? 0),
+      quality,
+    }, Number(cur.lapses ?? 0));
 
     const newLapses = (cur.lapses ?? 0) + (sm.lapsed ? 1 : 0);
 
-    const updateData = {
+    const { error: upErr } = await supabase.from('user_cards').update({
       ease_factor: sm.ease_factor,
       interval_days: sm.interval_days,
       repetitions: sm.repetitions,
@@ -471,41 +212,112 @@ export class FlashcardSvc {
       last_reviewed: new Date().toISOString(),
       last_quality: quality,
       lapses: newLapses,
-      status: 'active',
-      learning_status: sm.status,
-      times_seen: Number(cur.times_seen ?? 0) + 1,
-      updated_at: new Date().toISOString(),
-    };
+      status: sm.status,
+    }).eq('user_id', userId).eq('card_id', cardId);
+    if (upErr) throw upErr;
 
-    const { error: upErr } = await supabase
-      .from('user_cards')
-      .update(updateData)
-      .match({ user_id: userId, card_id: cardId });
-
-    if (upErr) {
-      console.error('[FlashcardSvc] Update error:', upErr);
-      throw upErr;
-    }
-
-    try {
-      await supabase.from('card_reviews').insert({
-        user_id: userId,
-        card_id: cardId,
-        quality,
-        prev_interval: cur.interval_days,
-        new_interval: sm.interval_days,
-        prev_ef: cur.ease_factor,
-        new_ef: sm.ease_factor,
-      });
-    } catch (e) {
-      console.warn('[FlashcardSvc] Could not log review history:', e);
-    }
-
+    // Audit log
+    await supabase.from('card_reviews').insert({
+      user_id: userId, card_id: cardId,
+      quality,
+      prev_interval: cur.interval_days,
+      new_interval: sm.interval_days,
+      prev_ef: cur.ease_factor,
+      new_ef: sm.ease_factor,
+    });
     return sm;
   }
 
-  // ============ FREEZE / UNFREEZE ============
+  // ============ MENU ACTION HELPERS ============
+  private static async ensureUserHasCard(userId: string, cardId: string) {
+    const { data, error } = await supabase
+      .from('user_cards')
+      .select('id, user_id, card_id, status')
+      .eq('user_id', userId)
+      .eq('card_id', cardId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) throw new Error('Card not found for this user');
+    return data;
+  }
+
+  private static async getCard(cardId: string) {
+    const { data, error } = await supabase
+      .from('cards')
+      .select('*')
+      .eq('id', cardId)
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * If card is shared/non-manual, clone it first and repoint this user's user_cards row.
+   * Prevents editing global question cards for all users.
+   */
+  private static async ensureEditableCardForUser(userId: string, cardId: string): Promise<string> {
+    await this.ensureUserHasCard(userId, cardId);
+    const card = await this.getCard(cardId);
+
+    const isManual = card.card_type === 'manual' || String(card.question_id || '').startsWith('manual_');
+    if (isManual) return cardId;
+
+    const now = new Date().toISOString();
+    const { data: clone, error: cloneErr } = await supabase
+      .from('cards')
+      .insert({
+        question_id: `manual_copy_${Date.now()}`,
+        test_id: 'manual',
+        question_text: card.front_text || card.question_text || '',
+        answer_text: card.back_text || card.answer_text || '',
+        front_text: card.front_text || card.question_text || '',
+        back_text: card.back_text || card.answer_text || '',
+        front_image_url: card.front_image_url || null,
+        back_image_url: card.back_image_url || null,
+        subject: card.subject || 'General',
+        section_group: card.section_group || 'General',
+        microtopic: card.microtopic || 'General',
+        provider: 'User',
+        card_type: 'manual',
+        source: {
+          ...(card.source || {}),
+          cloned_from: card.id,
+          cloned_at: now,
+        },
+        explanation_markdown: card.explanation_markdown || card.back_text || card.answer_text || '',
+      })
+      .select('id')
+      .single();
+
+    if (cloneErr) throw cloneErr;
+
+    const { error: linkErr } = await supabase
+      .from('user_cards')
+      .update({ card_id: clone.id, updated_at: now })
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
+
+    if (linkErr) throw linkErr;
+
+    return clone.id as string;
+  }
+
+  static async saveNote(userId: string, cardId: string, note: string) {
+    await this.ensureUserHasCard(userId, cardId);
+    const { error } = await supabase
+      .from('user_cards')
+      .update({
+        user_note: note ?? '',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('card_id', cardId);
+    if (error) throw error;
+  }
+
   static async freezeCard(userId: string, cardId: string) {
+    await this.ensureUserHasCard(userId, cardId);
     const { error } = await supabase
       .from('user_cards')
       .update({ status: 'frozen', updated_at: new Date().toISOString() })
@@ -515,6 +327,7 @@ export class FlashcardSvc {
   }
 
   static async unfreezeCard(userId: string, cardId: string) {
+    await this.ensureUserHasCard(userId, cardId);
     const { error } = await supabase
       .from('user_cards')
       .update({ status: 'active', updated_at: new Date().toISOString() })
@@ -523,143 +336,145 @@ export class FlashcardSvc {
     if (error) throw error;
   }
 
-  // ============ PERSONAL NOTE ============
-  static async saveNote(userId: string, cardId: string, note: string) {
+  static async toggleFreeze(userId: string, cardId: string, currentStatus: string) {
+    if (currentStatus === 'frozen') return this.unfreezeCard(userId, cardId);
+    return this.freezeCard(userId, cardId);
+  }
+
+  static async updateCardForUser(userId: string, cardId: string, patch: Partial<NewCardInput>) {
+    const editableCardId = await this.ensureEditableCardForUser(userId, cardId);
+    await this.updateCard(editableCardId, patch);
+    return editableCardId;
+  }
+
+  static async reverseCardForUser(userId: string, cardId: string) {
+    const editableCardId = await this.ensureEditableCardForUser(userId, cardId);
+    const card = await this.getCard(editableCardId);
+
+    const front = card.front_text || card.question_text || '';
+    const back = card.back_text || card.answer_text || '';
+    const frontImg = card.front_image_url || null;
+    const backImg = card.back_image_url || null;
+
+    const { error } = await supabase
+      .from('cards')
+      .update({
+        front_text: back,
+        back_text: front,
+        question_text: back,
+        answer_text: front,
+        front_image_url: backImg,
+        back_image_url: frontImg,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editableCardId);
+
+    if (error) throw error;
+    return editableCardId;
+  }
+
+  static async duplicateCardForUser(userId: string, cardId: string) {
+    await this.ensureUserHasCard(userId, cardId);
+    const card = await this.getCard(cardId);
+
+    const { data: newCard, error: cardErr } = await supabase
+      .from('cards')
+      .insert({
+        question_id: `manual_dup_${Date.now()}`,
+        test_id: 'manual',
+        question_text: card.front_text || card.question_text || '',
+        answer_text: card.back_text || card.answer_text || '',
+        front_text: card.front_text || card.question_text || '',
+        back_text: card.back_text || card.answer_text || '',
+        front_image_url: card.front_image_url || null,
+        back_image_url: card.back_image_url || null,
+        subject: card.subject || 'General',
+        section_group: card.section_group || 'General',
+        microtopic: card.microtopic || 'General',
+        provider: 'User',
+        card_type: 'manual',
+        source: {
+          ...(card.source || {}),
+          duplicated_from: card.id,
+        },
+        explanation_markdown: card.explanation_markdown || '',
+      })
+      .select('id')
+      .single();
+
+    if (cardErr) throw cardErr;
+
+    const { error: userCardErr } = await supabase
+      .from('user_cards')
+      .insert({
+        user_id: userId,
+        card_id: newCard.id,
+        status: 'active',
+        learning_status: 'not_studied',
+        repetitions: 0,
+        interval_days: 0,
+        ease_factor: 2.5,
+        next_review: new Date().toISOString(),
+        user_note: '',
+      });
+
+    if (userCardErr) throw userCardErr;
+    return newCard.id as string;
+  }
+
+  static async moveCardForUser(
+    userId: string,
+    cardId: string,
+    target: { subject: string; section_group: string; microtopic: string }
+  ) {
+    const editableCardId = await this.ensureEditableCardForUser(userId, cardId);
+
+    const { error } = await supabase
+      .from('cards')
+      .update({
+        subject: target.subject.trim(),
+        section_group: target.section_group.trim(),
+        microtopic: target.microtopic.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editableCardId);
+
+    if (error) throw error;
+    return editableCardId;
+  }
+
+  static async softDeleteCardForUser(userId: string, cardId: string) {
+    await this.ensureUserHasCard(userId, cardId);
     const { error } = await supabase
       .from('user_cards')
-      .update({ user_note: note, updated_at: new Date().toISOString(), client_updated_at: new Date().toISOString(), dirty: true })
+      .update({ status: 'deleted', updated_at: new Date().toISOString() })
       .eq('user_id', userId)
       .eq('card_id', cardId);
     if (error) throw error;
   }
 
-  // ============ DECK SUMMARY ============
-  static async getDeckSummary(userId: string, subject: string, section: string, microtopic: string) {
-    // 1. Fetch all master cards for this microtopic to get the total pool
-    const { data: allCards, error: cardsErr } = await supabase
-      .from('cards')
-      .select('id')
-      .eq('subject', subject)
-      .eq('section_group', section || 'General')
-      .eq('microtopic', microtopic || 'General');
-
-    if (cardsErr) throw cardsErr;
-
-    // 2. Fetch user's progress for these cards
-    const cardIds = (allCards || []).map(c => c.id);
-    const { data: userStates, error: stateErr } = await supabase
+  static async restoreDeletedCardForUser(userId: string, cardId: string) {
+    const { error } = await supabase
       .from('user_cards')
-      .select('card_id, learning_status, next_review, status')
+      .update({ status: 'active', updated_at: new Date().toISOString() })
       .eq('user_id', userId)
-      .in('card_id', cardIds);
-
-    if (stateErr) throw stateErr;
-
-    const stateMap = new Map(userStates?.map(s => [s.card_id, s]) || []);
-    const now = new Date();
-    
-    const stats = {
-      total: 0,
-      new_count: 0,
-      learning_count: 0,
-      mastered_count: 0,
-      due_count: 0,
-      frozen_count: 0
-    };
-
-    (allCards || []).forEach((c: any) => {
-      const state = stateMap.get(c.id);
-      
-      // If marked as deleted, skip entirely
-      if (state?.status === 'deleted') return;
-
-      stats.total++;
-
-      if (!state || state.learning_status === 'not_studied') {
-        stats.new_count++;
-      } else if (state.status === 'frozen') {
-        stats.frozen_count++;
-      } else if (state.learning_status === 'mastered') {
-        stats.mastered_count++;
-      } else {
-        stats.learning_count++;
-      }
-
-      // Only count as "Due" if it's already been studied and review time has passed
-      if (state && state.learning_status !== 'not_studied' && state.status === 'active' && state.next_review && new Date(state.next_review) <= now) {
-        stats.due_count++;
-      }
-    });
-
-    return stats;
+      .eq('card_id', cardId)
+      .eq('status', 'deleted');
+    if (error) throw error;
   }
 
-  // ============ CARD LIST WITH PREVIEW ============
-  static async listCardsWithProgress(userId: string, subject: string, section: string, microtopic: string) {
-    // 1. Fetch all cards for this microtopic
-    const { data: allCards, error: cardsErr } = await supabase
-      .from('cards')
-      .select('*')
-      .eq('subject', subject)
-      .eq('section_group', section || 'General')
-      .eq('microtopic', microtopic || 'General');
-
-    if (cardsErr) throw cardsErr;
-
-    // 2. Fetch user's progress for these cards
-    const cardIds = (allCards || []).map(c => c.id);
-    const { data: userStates, error: stateErr } = await supabase
-      .from('user_cards')
-      .select('*')
-      .eq('user_id', userId)
-      .in('card_id', cardIds);
-
-    if (stateErr) throw stateErr;
-
-    const stateMap = new Map(userStates?.map(s => [s.card_id, s]) || []);
-
-    return (allCards ?? [])
-      .map((c: any) => {
-        const state = stateMap.get(c.id);
-        return {
-          ...c,
-          ...(state || {}),
-          id: c.id, // Ensure we use the master card ID
-          learning_status: state?.learning_status || 'not_studied',
-          status: state?.status || 'active',
-          preview: (state?.user_note || c.front_text || c.question_text || '').slice(0, 80),
-        };
-      })
-      .filter(c => c.status !== 'deleted');
-  }
-
-  // ============ DUE CARDS WITH DAY LABEL ============
-  static async listDueWithDays(userId: string, withinDays = 7) {
-    const now = new Date();
-    const horizon = new Date(now);
-    horizon.setDate(horizon.getDate() + withinDays);
-
+  static async getLearningHistory(userId: string, cardId: string, limit = 30, offset = 0) {
+    const to = offset + limit - 1;
     const { data, error } = await supabase
-      .from('user_cards')
-      .select('*, cards!inner(*)')
+      .from('card_reviews')
+      .select('id, reviewed_at, quality, prev_interval, new_interval, prev_ef, new_ef')
       .eq('user_id', userId)
-      .lte('next_review', horizon.toISOString())
-      .eq('status', 'active')
-      .order('next_review', { ascending: true });
+      .eq('card_id', cardId)
+      .order('reviewed_at', { ascending: false })
+      .range(offset, to);
 
     if (error) throw error;
-
-    return (data ?? []).map((d: any) => {
-      const due = new Date(d.next_review);
-      const diff = Math.ceil((due.getTime() - now.getTime()) / 86400000);
-      return {
-        ...d.cards,
-        ...d,
-        id: d.card_id,
-        days_until_due: diff <= 0 ? 0 : diff,
-        due_label: diff <= 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `${diff}d`,
-      };
-    });
+    return data || [];
   }
 
   /** @deprecated  Map old performance arg → quality. */
