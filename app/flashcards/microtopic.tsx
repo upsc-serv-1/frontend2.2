@@ -689,6 +689,7 @@ export default function MicrotopicModal() {
 
         <ScrollView 
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1 }}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

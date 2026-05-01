@@ -435,8 +435,8 @@ export default function FlashcardsDashboard() {
     <PageWrapper>
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
         <ScrollView 
-          stickyHeaderIndices={[0]} 
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1 }}
           refreshControl={
             <RefreshControl 
               refreshing={isRefreshing} 
