@@ -71,6 +71,8 @@ export default function ResultScreen() {
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [inFlashcardDeck, setInFlashcardDeck] = useState<Record<string, boolean>>({});
+  const [savingFlashcard, setSavingFlashcard] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     (async () => {
@@ -128,6 +130,21 @@ export default function ResultScreen() {
           ]);
           setQuestions((qs ?? []) as any);
           setStates((qstates ?? []) as any);
+
+          // Fetch which questions are already in flashcards to show visual state
+          if (ids.length) {
+            const { data: fcData } = await supabase
+              .from('user_cards')
+              .select('question_id')
+              .eq('user_id', session?.user.id)
+              .in('question_id', ids);
+            
+            if (fcData) {
+              const map: Record<string, boolean> = {};
+              fcData.forEach(row => { if (row.question_id) map[row.question_id] = true; });
+              setInFlashcardDeck(map);
+            }
+          }
         }
       } catch (err) {
         console.error('[Result] Fetch error:', err);
@@ -245,6 +262,12 @@ export default function ResultScreen() {
 
   const handleAddToFlashcard = async (q: QuestionRow) => {
     if (!attempt || !session?.user?.id) return;
+    if (inFlashcardDeck[q.id]) {
+      Alert.alert('Info', 'This question is already in your flashcard deck.');
+      return;
+    }
+    
+    setSavingFlashcard(prev => ({ ...prev, [q.id]: true }));
     try {
       await FlashcardSvc.createCard(session.user.id, {
         question_id: q.id,
@@ -262,10 +285,13 @@ export default function ResultScreen() {
           options: q.options 
         }
       });
+      setInFlashcardDeck(prev => ({ ...prev, [q.id]: true }));
       Alert.alert('Success', 'Flashcard created successfully!');
     } catch (err) {
       console.error('Flashcard error:', err);
       Alert.alert('Error', 'Failed to create flashcard');
+    } finally {
+      setSavingFlashcard(prev => ({ ...prev, [q.id]: false }));
     }
   };
 
@@ -559,10 +585,24 @@ export default function ResultScreen() {
 
                 <TouchableOpacity 
                   onPress={() => handleAddToFlashcard(q)}
-                  style={[s.flashBtn, { borderColor: colors.primary + '40' }]}
+                  disabled={!!savingFlashcard[q.id]}
+                  style={[
+                    s.flashBtn, 
+                    { borderColor: colors.primary + '40' },
+                    inFlashcardDeck[q.id] && { backgroundColor: colors.primary + '10', borderStyle: 'solid' }
+                  ]}
                 >
-                  <Zap size={14} color={colors.primary} />
-                  <Text style={[s.flashBtnText, { color: colors.primary }]}>ADD TO FLASHCARD</Text>
+                  <Zap 
+                    size={14} 
+                    color={inFlashcardDeck[q.id] ? colors.primary : colors.textTertiary} 
+                    fill={inFlashcardDeck[q.id] ? colors.primary : 'transparent'}
+                  />
+                  <Text style={[
+                    s.flashBtnText, 
+                    { color: inFlashcardDeck[q.id] ? colors.primary : colors.textTertiary }
+                  ]}>
+                    {savingFlashcard[q.id] ? 'ADDING...' : inFlashcardDeck[q.id] ? 'IN FLASHCARDS' : 'ADD TO FLASHCARD'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             );

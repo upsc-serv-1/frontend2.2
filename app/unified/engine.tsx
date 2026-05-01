@@ -571,7 +571,8 @@ export default function UnifiedQuizEngine() {
           .then(({ data }) => {
             if (data) {
               const map: Record<string, boolean> = {};
-              data.forEach(row => { map[row.question_id] = true; });
+              data.forEach(row => { if (row.question_id) map[row.question_id] = true; });
+              console.log(`[Arena] Initialized inFlashcardDeck with ${Object.keys(map).length} matches out of ${finalQs.length} questions`);
               setInFlashcardDeck(map);
             }
           });
