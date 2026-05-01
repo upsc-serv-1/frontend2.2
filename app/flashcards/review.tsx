@@ -322,39 +322,6 @@ export default function ReviewScreen() {
     );
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
-
-  if (queue.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Check size={64} color={colors.primary} />
-        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Deck Clear!</Text>
-        <Text style={[styles.emptySub, { color: colors.textTertiary }]}>No cards due for review in this topic.</Text>
-        <TouchableOpacity style={[styles.doneBtn, { backgroundColor: colors.primary }]} onPress={() => router.back()}>
-          <Text style={styles.doneBtnText}>Return to Dashboard</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const onPinchGestureEvent = (event: any) => {
-    const scale = event.nativeEvent.scale;
-    let nextSize = baseFontSize.current * scale;
-    nextSize = Math.max(12, Math.min(40, nextSize));
-    setEditorFontSize(Math.round(nextSize));
-    setShowZoomIndicator(true);
-    if (zoomTimer.current) clearTimeout(zoomTimer.current);
-    zoomTimer.current = setTimeout(() => setShowZoomIndicator(false), 1500);
-  };
-
-  const onPinchHandlerStateChange = (event: any) => {
-    if (event.nativeEvent.state === State.END) {
-      baseFontSize.current = editorFontSize;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      AsyncStorage.setItem('flashcard_font_size', editorFontSize.toString()).catch(console.error);
-    }
-  };
-
   const currentCard = queue[currentIndex]?.card;
 
   const cardState: SrsCardState = useMemo(() => {
@@ -374,6 +341,21 @@ export default function ReviewScreen() {
     () => (isFlipped && currentCard ? previewAll(cardState, settings) : null),
     [isFlipped, cardState, settings, currentCard]
   );
+
+  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
+
+  if (queue.length === 0) {
+    return (
+      <View style={styles.center}>
+        <Check size={64} color={colors.primary} />
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Deck Clear!</Text>
+        <Text style={[styles.emptySub, { color: colors.textTertiary }]}>No cards due for review in this topic.</Text>
+        <TouchableOpacity style={[styles.doneBtn, { backgroundColor: colors.primary }]} onPress={() => router.back()}>
+          <Text style={styles.doneBtnText}>Return to Dashboard</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const frontInterpolate = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] });
   const backInterpolate = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ['180deg', '360deg'] });

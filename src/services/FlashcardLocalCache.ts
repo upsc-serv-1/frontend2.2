@@ -117,7 +117,7 @@ export const FlashcardLocalCache = {
       repetitions: result.repetitions,
       lapses: result.lapses,
       learning_step: result.learning_step,
-      status: result.status,
+      learning_status: result.status,
       next_review: result.next_review.toISOString(),
       last_reviewed: new Date().toISOString(),
     }, { onConflict: 'user_id,card_id' }).then(() => this.flushOutbox(userId));

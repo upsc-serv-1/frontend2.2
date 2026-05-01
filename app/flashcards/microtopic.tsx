@@ -198,11 +198,18 @@ export default function MicrotopicModal() {
     let result = [...cards];
 
     if (filterBy !== 'all') {
-      if (filterBy === 'frozen') result = result.filter((c) => c.status === 'frozen');
-      else if (filterBy === 'not_studied') result = result.filter((c) => c.learning_status === 'not_studied' && c.status === 'active');
-      else result = result.filter((c) => c.learning_status === filterBy && c.status === 'active');
+      if (filterBy === 'frozen') {
+        result = result.filter((c) => c.status === 'frozen');
+      } else if (filterBy === 'not_studied') {
+        result = result.filter((c) => (c.learning_status === 'not_studied' || !c.learning_status) && c.status !== 'frozen' && c.status !== 'deleted');
+      } else if (filterBy === 'due') {
+        const now = new Date();
+        result = result.filter((c) => c.status !== 'frozen' && c.status !== 'deleted' && (!c.next_review || new Date(c.next_review) <= now));
+      } else {
+        result = result.filter((c) => c.learning_status === filterBy && c.status !== 'frozen' && c.status !== 'deleted');
+      }
     } else {
-      result = result.filter((c) => c.status === 'active');
+      result = result.filter((c) => c.status !== 'frozen' && c.status !== 'deleted');
     }
 
     result.sort((a, b) => {
@@ -663,10 +670,34 @@ export default function MicrotopicModal() {
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.statsPanel}>
             <View style={styles.statsRow}>
-              <StatItem label="Due" value={stats.due} color={colors.primary} />
-              <StatItem label="New" value={stats.new} color={colors.textTertiary} />
-              <StatItem label="Learning" value={stats.learning} color="#3b82f6" />
-              <StatItem label="Mastered" value={stats.mastered} color="#34c759" />
+              <StatItem 
+                label="Due" 
+                value={stats.due} 
+                color={colors.primary} 
+                onPress={() => setFilterBy('due')}
+                active={filterBy === 'due'}
+              />
+              <StatItem 
+                label="New" 
+                value={stats.new} 
+                color={colors.textTertiary} 
+                onPress={() => setFilterBy('not_studied')}
+                active={filterBy === 'not_studied'}
+              />
+              <StatItem 
+                label="Learning" 
+                value={stats.learning} 
+                color="#3b82f6" 
+                onPress={() => setFilterBy('learning')}
+                active={filterBy === 'learning'}
+              />
+              <StatItem 
+                label="Mastered" 
+                value={stats.mastered} 
+                color="#34c759" 
+                onPress={() => setFilterBy('mastered')}
+                active={filterBy === 'mastered'}
+              />
             </View>
 
             <View style={styles.progressContainer}>
@@ -939,13 +970,19 @@ export default function MicrotopicModal() {
   );
 }
 
-function StatItem({ label, value, color }: any) {
+function StatItem({ label, value, color, onPress, active }: any) {
   const { colors } = useTheme();
   return (
-    <View style={styles.statItem}>
+    <TouchableOpacity 
+      style={[
+        styles.statItem, 
+        active && { backgroundColor: color + '15', borderColor: color, borderWidth: 1 }
+      ]} 
+      onPress={onPress}
+    >
       <Text style={[styles.statVal, { color }]}>{value}</Text>
       <Text style={[styles.statLab, { color: colors.textTertiary }]}>{label}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 

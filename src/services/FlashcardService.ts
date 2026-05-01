@@ -120,7 +120,9 @@ export class FlashcardSvc {
       const { error } = await supabase.from('user_cards').insert({
         user_id: userId, card_id: card!.id,
         ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0,
-        next_review: new Date().toISOString(), status: 'new',
+        next_review: new Date().toISOString(), 
+        status: 'active',
+        learning_status: 'not_studied'
       });
       if (error) throw error;
     }
@@ -231,7 +233,7 @@ export class FlashcardSvc {
       last_reviewed: new Date().toISOString(),
       last_quality: quality,
       lapses: newLapses,
-      status: sm.status,
+      learning_status: sm.status,
     }).eq('user_id', userId).eq('card_id', cardId);
     if (upErr) throw upErr;
 
