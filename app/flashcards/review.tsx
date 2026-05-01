@@ -322,6 +322,24 @@ export default function ReviewScreen() {
     );
   };
 
+  const onPinchGestureEvent = (event: any) => {
+    const scale = event.nativeEvent.scale;
+    let nextSize = baseFontSize.current * scale;
+    nextSize = Math.max(12, Math.min(40, nextSize));
+    setEditorFontSize(Math.round(nextSize));
+    setShowZoomIndicator(true);
+    if (zoomTimer.current) clearTimeout(zoomTimer.current);
+    zoomTimer.current = setTimeout(() => setShowZoomIndicator(false), 1500);
+  };
+
+  const onPinchHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.state === State.END) {
+      baseFontSize.current = editorFontSize;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      AsyncStorage.setItem('flashcard_font_size', editorFontSize.toString()).catch(console.error);
+    }
+  };
+
   const currentCard = queue[currentIndex]?.card;
 
   const cardState: SrsCardState = useMemo(() => {

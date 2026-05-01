@@ -83,6 +83,7 @@ export default function MicrotopicModal() {
   const currentSection = normalizeLabel(params.section);
   const currentMicrotopic = normalizeLabel(params.microtopic);
   const branchId = params.branchId as string;
+  const branchName = params.name as string;
 
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<CardItem[]>([]);
@@ -656,10 +657,10 @@ export default function MicrotopicModal() {
           </TouchableOpacity>
           <View style={styles.headerInfo}>
             <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-              {currentMicrotopic}
+              {branchId ? branchName : currentMicrotopic}
             </Text>
             <Text style={[styles.headerSub, { color: colors.textTertiary }]}> 
-              {currentSubject} • {currentSection}
+              {branchId ? 'Recursive Folder' : `${currentSubject} • ${currentSection}`}
             </Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddModalVisible(true)}>
