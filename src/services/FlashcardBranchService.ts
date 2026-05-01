@@ -33,7 +33,8 @@ export class FlashcardBranchService {
     const { data: existingMappings } = await supabase
       .from('flashcard_branch_cards')
       .select('card_id')
-      .in('card_id', userCards.map(uc => uc.card_id));
+      .in('card_id', userCards.map(uc => uc.card_id))
+      .eq('user_id', userId);
     
     const mappedIds = new Set(existingMappings?.map(m => m.card_id) || []);
     const unmappedCards = userCards.filter(uc => !mappedIds.has(uc.card_id));
@@ -84,6 +85,7 @@ export class FlashcardBranchService {
         );
 
         await supabase.from('flashcard_branch_cards').upsert({
+          user_id: userId,
           branch_id: branchId,
           card_id: uc.card_id
         }, { onConflict: 'branch_id,card_id' });
@@ -116,8 +118,9 @@ export class FlashcardBranchService {
     if (branchIds.length > 0) {
       const { data: cardCounts } = await supabase
         .from('flashcard_branch_cards')
-        .select('branch_id')
-        .in('branch_id', branchIds);
+        .select('branch_id, user_cards!inner(id)')
+        .in('branch_id', branchIds)
+        .eq('user_id', userId);
 
       cardCounts?.forEach(c => {
         countsMap[c.branch_id] = (countsMap[c.branch_id] || 0) + 1;
