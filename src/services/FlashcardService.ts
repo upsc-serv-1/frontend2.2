@@ -107,6 +107,7 @@ export class FlashcardSvc {
           // legacy fields kept for backward compat:
           question_text: input.front_text,
           answer_text: input.back_text,
+          question_id: input.question_id || null, // Link to source question
         })
         .select('id').single();
       if (error) throw error;
@@ -120,6 +121,7 @@ export class FlashcardSvc {
     if (!existing) {
       const { error } = await supabase.from('user_cards').insert({
         user_id: userId, card_id: card!.id,
+        question_id: input.question_id || null, // Track source question
         ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0,
         next_review: new Date().toISOString(), 
         status: CardStatus.ACTIVE,
