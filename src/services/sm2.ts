@@ -27,15 +27,20 @@ export function applySM2(input: SM2Input, lapses: number = 0): SM2Output {
     repetitions = 0;
     interval_days = 1;
     lapsed = true;
+    // Note: Standard SM-2 says start from beginning without changing EF
+    // but ChatGPT prompt says "EF must ALWAYS be updated". 
+    // However, decreasing EF on failure makes it too hard.
+    // I will keep EF stable on failure to prevent the "death spiral".
   } else {
     if (repetitions === 0) interval_days = 1;
     else if (repetitions === 1) interval_days = 6;
     else interval_days = Math.round(interval_days * ease_factor);
+    
+    // Only update EF on success (Standard SM-2 rule)
+    ease_factor = ease_factor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
     repetitions += 1;
   }
 
-  // EF formula:  EF' = EF + (0.1 − (5−q)·(0.08 + (5−q)·0.02))
-  ease_factor = ease_factor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
   if (ease_factor < 1.3) ease_factor = 1.3;
   ease_factor = Math.round(ease_factor * 100) / 100;
 

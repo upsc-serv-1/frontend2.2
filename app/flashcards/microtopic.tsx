@@ -30,6 +30,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
+import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
 import { CardOverflowMenu, CardMenuAction } from '../../src/components/flashcards/CardOverflowMenu';
 
 const { width } = Dimensions.get('window');
@@ -48,7 +49,7 @@ export default function MicrotopicModal() {
   const { colors } = useTheme();
   const router = useRouter();
   const { session } = useAuth();
-  const { subject, section, microtopic } = useLocalSearchParams();
+  const { subject, section, microtopic, branchId } = useLocalSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<CardItem[]>([]);
@@ -76,20 +77,33 @@ export default function MicrotopicModal() {
 
   useEffect(() => {
     if (session?.user.id) loadCards();
-  }, [session, microtopic, subject, section]);
+  }, [session, microtopic, subject, section, branchId]);
 
   const loadCards = async () => {
     setLoading(true);
     try {
-      // 1. Get cards in this microtopic
-      const { data: baseCards, error: bErr } = await supabase
-        .from('cards')
-        .select('*')
-        .eq('subject', subject)
-        .eq('section_group', section === 'General' ? null : section)
-        .eq('microtopic', microtopic);
+      // 1. Get cards
+      let baseCards: any[] = [];
+      const userId = session!.user.id;
 
-      if (bErr) throw bErr;
+      if (branchId) {
+        console.log(`[FlashcardDeck] Loading by Branch ID: ${branchId}`);
+        const cardIds = await FlashcardBranchService.getCardsRecursive(userId, branchId as string);
+        if (cardIds.length > 0) {
+          const { data, error } = await supabase.from('cards').select('*').in('id', cardIds);
+          if (error) throw error;
+          baseCards = data || [];
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('cards')
+          .select('*')
+          .eq('subject', subject)
+          .eq('section_group', section === 'General' ? null : section)
+          .eq('microtopic', microtopic);
+        if (error) throw error;
+        baseCards = data || [];
+      }
 
       // 2. Get user's progress for these cards
       const cardIds = (baseCards || []).map((c) => c.id);

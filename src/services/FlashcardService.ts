@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { applySM2 } from './sm2';
+import { FlashcardBranchService } from './FlashcardBranchService';
 
 export type CardSource =
   | { kind: 'question'; question_id: string }
@@ -121,6 +122,17 @@ export class FlashcardSvc {
         next_review: new Date().toISOString(), status: 'new',
       });
       if (error) throw error;
+    }
+
+    // Auto-organize into branch tree
+    try {
+      await FlashcardBranchService.ensureDefaultBranch(userId, card!.id, {
+        subject: input.subject || 'General',
+        section_group: input.section_group || 'General',
+        microtopic: input.microtopic || 'General'
+      });
+    } catch (e) {
+      console.error('[FlashcardSvc] ensureDefaultBranch error:', e);
     }
 
     return card!.id;

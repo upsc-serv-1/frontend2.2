@@ -691,14 +691,12 @@ export default function ReviewScreen() {
             <View style={styles.qualityRow}>
               {[
                 { q: 0, label: 'Again', color: '#ef4444' },
-                { q: 2, label: 'Hard', color: '#f59e0b' },
-                { q: 3, label: 'Good', color: colors.primary },
-                { q: 4, label: 'Easy', color: '#3b82f6' },
-                { q: 5, label: 'Perfect', color: '#22c55e' },
+                { q: 3, label: 'Hard', color: '#f59e0b' },
+                { q: 4, label: 'Good', color: colors.primary },
+                { q: 5, label: 'Easy', color: '#22c55e' },
               ].map(({ q, label, color }) => (
-                <TouchableOpacity key={q} style={[styles.qBtn, { borderColor: color }]} onPress={() => rate(q)}>
+                <TouchableOpacity key={label} style={[styles.qBtn, { borderColor: color }]} onPress={() => rate(q)}>
                   <Text style={[styles.qBtnLabel, { color }]}>{label}</Text>
-                  <Text style={styles.qBtnSub}>{q}</Text>
                 </TouchableOpacity>
               ))}
             </View>
