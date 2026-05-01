@@ -33,7 +33,11 @@ CREATE TABLE card_reviews (
   prev_interval integer,
   new_interval integer,
   prev_ef numeric,
-  new_ef numeric
+  new_ef numeric,
+  rating text,
+  learning_step smallint,
+  prev_minutes integer,
+  new_minutes integer
 );
 
 CREATE TABLE cards (
@@ -73,7 +77,8 @@ CREATE TABLE flashcard_branch_cards (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   branch_id uuid NOT NULL,
   card_id uuid NOT NULL,
-  created_at timestamp with time zone DEFAULT now()
+  created_at timestamp with time zone DEFAULT now(),
+  user_id uuid
 );
 
 CREATE TABLE flashcard_branches (
@@ -231,7 +236,10 @@ CREATE TABLE user_cards (
   lapses integer DEFAULT 0,
   client_updated_at timestamp with time zone DEFAULT now(),
   dirty boolean DEFAULT false,
-  times_seen integer DEFAULT 0
+  times_seen integer DEFAULT 0,
+  learning_step smallint,
+  interval_minutes integer NOT NULL DEFAULT 0,
+  question_id text
 );
 
 CREATE TABLE user_note_nodes (
@@ -290,7 +298,8 @@ CREATE TABLE user_widgets (
   widget_key text NOT NULL,
   position integer NOT NULL DEFAULT 0,
   is_archived boolean NOT NULL DEFAULT false,
-  created_at timestamp with time zone DEFAULT now()
+  created_at timestamp with time zone DEFAULT now(),
+  size text NOT NULL DEFAULT 'half'::text
 );
 
 CREATE TABLE users (
