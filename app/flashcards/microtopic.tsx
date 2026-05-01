@@ -1007,7 +1007,6 @@ function StatItem({ label, value, color, onPress, active }: any) {
     <TouchableOpacity 
       style={[
         styles.statItem, 
-        active && { backgroundColor: color + '15', borderColor: color, borderWidth: 1 }
       ]} 
       onPress={onPress}
     >
