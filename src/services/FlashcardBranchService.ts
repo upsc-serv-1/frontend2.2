@@ -65,14 +65,9 @@ export class FlashcardBranchService {
     }
 
     console.log(`[FlashcardBranchSvc] Found ${unmappedCards.length} unmapped cards. Repairing...`);
+    let repaired = 0;
 
-    // 3. Get existing branches to minimize DB calls
-    const { data: existingBranches } = await supabase
-      .from('flashcard_branches')
-      .select('id, name, parent_id')
-      .eq('user_id', userId)
-      .eq('is_deleted', false);
-
+    // 3. Get existing branches to minimize DB calls (optional optimization)
     // 4. Repair unmapped cards
     for (const uc of unmappedCards) {
       try {
@@ -84,16 +79,22 @@ export class FlashcardBranchService {
           card.microtopic || 'General'
         );
 
-        await supabase.from('flashcard_branch_cards').upsert({
+        const { error: upsertErr } = await supabase.from('flashcard_branch_cards').upsert({
           user_id: userId,
           branch_id: branchId,
           card_id: uc.card_id
-        }, { onConflict: 'branch_id,card_id' });
+        }, { onConflict: 'user_id,card_id' }); // V9 constraint
+
+        if (upsertErr) {
+          console.error(`[FlashcardBranchSvc] Repair error for card ${uc.card_id}: ${upsertErr.message}`);
+        } else {
+          repaired++;
+        }
       } catch (err) {
-        console.error(`[FlashcardBranchSvc] Repair error for card ${uc.card_id}:`, err);
+        console.error(`[FlashcardBranchSvc] Repair catch error for card ${uc.card_id}:`, err);
       }
     }
-    console.log(`[FlashcardBranchSvc] Hierarchy sync complete.`);
+    console.log(`[FlashcardBranchSvc] Hierarchy sync complete. Repaired ${repaired} cards.`);
   }
 
   static async getTree(userId: string, options: { includeArchived?: boolean } = {}): Promise<BranchNode[]> {
