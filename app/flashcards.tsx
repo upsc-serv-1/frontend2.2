@@ -392,7 +392,7 @@ export default function FlashcardsDashboard() {
                 styles.vLine, 
                 { 
                   left: i * 32 + 34, 
-                  backgroundColor: colors.border + '50',
+                  backgroundColor: colors.border,
                   top: 0,
                   bottom: 0 
                 }
@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
   treeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14 },
   treeHeaderTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   treeRowContainer: { position: 'relative' },
-  vLine: { position: 'absolute', top: 0, bottom: 0, width: 1.5, zIndex: -1 },
+  vLine: { position: 'absolute', top: 0, bottom: 0, width: 2, zIndex: 1 },
   treeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingRight: 20 },
   expandBtn: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
   nodeContent: { flex: 1, marginLeft: 12 },
