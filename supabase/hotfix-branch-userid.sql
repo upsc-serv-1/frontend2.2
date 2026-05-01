@@ -20,15 +20,16 @@ BEGIN
 
     -- 3. Add unique constraint (deduplication)
     -- First, remove old duplicates if they exist to prevent constraint failure
-    DELETE FROM public.flashcard_branch_cards a USING (
-      SELECT MIN(id) as id, user_id, card_id
-      FROM public.flashcard_branch_cards
-      GROUP BY user_id, card_id
-      HAVING COUNT(*) > 1
-    ) b
-    WHERE a.user_id = b.user_id 
-    AND a.card_id = b.card_id 
-    AND a.id > b.id;
+    DELETE FROM public.flashcard_branch_cards
+    WHERE id IN (
+        SELECT id
+        FROM (
+            SELECT id,
+                   ROW_NUMBER() OVER (PARTITION BY user_id, card_id ORDER BY created_at DESC) as row_num
+            FROM public.flashcard_branch_cards
+        ) t
+        WHERE t.row_num > 1
+    );
 
     ALTER TABLE public.flashcard_branch_cards DROP CONSTRAINT IF EXISTS flashcard_branch_cards_user_id_card_id_key;
     ALTER TABLE public.flashcard_branch_cards ADD CONSTRAINT flashcard_branch_cards_user_id_card_id_key UNIQUE (user_id, card_id);
