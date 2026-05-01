@@ -65,6 +65,7 @@ export default function ReviewScreen() {
   const [showZoomIndicator, setShowZoomIndicator] = useState(false);
   const zoomTimer = useRef<any>(null);
   const [personalNote, setPersonalNote] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
   const [nextDueLabel, setNextDueLabel] = useState<string | null>(null);
   const [settings, setSettings] = useState<SrsSettings>(DEFAULT_SRS_SETTINGS);
 

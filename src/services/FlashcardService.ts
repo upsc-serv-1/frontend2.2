@@ -451,6 +451,7 @@ export class FlashcardSvc {
   ) {
     const editableCardId = await this.ensureEditableCardForUser(userId, cardId);
 
+    // 1. Update Card Metadata
     const { error } = await supabase
       .from('cards')
       .update({
@@ -462,6 +463,37 @@ export class FlashcardSvc {
       .eq('id', editableCardId);
 
     if (error) throw error;
+
+    // 2. Update Branch Mapping
+    try {
+      const branchId = await FlashcardBranchService.ensureDefaultBranch(
+        userId,
+        target.subject,
+        target.section_group,
+        target.microtopic
+      );
+
+      // We use upsert on (card_id, user_id) if we had that unique constraint, 
+      // but here we check for card_id and update it to the new branch_id.
+      // Since a card should only be in one branch for a user:
+      await supabase
+        .from('flashcard_branch_cards')
+        .delete()
+        .eq('card_id', editableCardId)
+        .eq('user_id', userId);
+
+      await supabase
+        .from('flashcard_branch_cards')
+        .insert({
+          user_id: userId,
+          card_id: editableCardId,
+          branch_id: branchId
+        });
+    } catch (err) {
+      console.error('[FlashcardSvc] Failed to update branch mapping during move:', err);
+      // We don't throw here as the card metadata is already updated
+    }
+
     return editableCardId;
   }
 
