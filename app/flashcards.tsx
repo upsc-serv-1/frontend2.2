@@ -30,7 +30,8 @@ import {
   Snowflake,
   Search as SearchIcon,
   X,
-  Check
+  Check,
+  Minus
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
