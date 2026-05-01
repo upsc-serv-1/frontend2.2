@@ -18,102 +18,60 @@ export interface BranchNode {
 }
 
 export class FlashcardBranchService {
-  static async bootstrapIfEmpty(userId: string) {
-    console.log(`[FlashcardBranchSvc] Checking bootstrap for user: ${userId}`);
+  static async syncHierarchy(userId: string) {
+    console.log(`[FlashcardBranchSvc] Syncing hierarchy for user: ${userId}`);
     
-    // 1. Check if we have any mappings for our branches
-    const { data: branches } = await supabase
-      .from('flashcard_branches')
-      .select('id, name, parent_id')
-      .eq('user_id', userId);
-
-    let mappingCount = 0;
-    if (branches && branches.length > 0) {
-      const { count } = await supabase
-        .from('flashcard_branch_cards')
-        .select('id', { count: 'exact', head: true })
-        .in('branch_id', branches.map(b => b.id));
-      mappingCount = count || 0;
-    }
-    
-    const existingBranches = branches || [];
-
-    if (mappingCount !== 0 && existingBranches.length > 0) {
-      console.log(`[FlashcardBranchSvc] Bootstrap skipped: already has ${mappingCount} mappings.`);
-      return;
-    }
-
-    // 2. Fetch all cards for this user
+    // 1. Get all user cards
     const { data: userCards, error: ucError } = await supabase
       .from('user_cards')
       .select('card_id, cards!inner(subject, section_group, microtopic)')
       .eq('user_id', userId);
 
-    if (ucError || !userCards || userCards.length === 0) {
-      console.log(`[FlashcardBranchSvc] No cards to bootstrap.`);
+    if (ucError || !userCards || userCards.length === 0) return;
+
+    // 2. Get existing mappings
+    const { data: existingMappings } = await supabase
+      .from('flashcard_branch_cards')
+      .select('card_id')
+      .in('card_id', userCards.map(uc => uc.card_id));
+    
+    const mappedIds = new Set(existingMappings?.map(m => m.card_id) || []);
+    const unmappedCards = userCards.filter(uc => !mappedIds.has(uc.card_id));
+
+    if (unmappedCards.length === 0) {
+      console.log(`[FlashcardBranchSvc] All ${userCards.length} cards already mapped.`);
       return;
     }
 
-    console.log(`[FlashcardBranchSvc] Bootstrapping ${userCards.length} cards...`);
+    console.log(`[FlashcardBranchSvc] Found ${unmappedCards.length} unmapped cards. Repairing...`);
 
-    // 3. Build hierarchy map from existing card fields
-    const subjects: Record<string, any> = {};
-    
-    userCards.forEach(uc => {
-      const card = uc.cards as any;
-      const sub = card.subject || 'General';
-      const sec = card.section_group || 'General';
-      const micro = card.microtopic || 'General';
+    // 3. Get existing branches to minimize DB calls
+    const { data: existingBranches } = await supabase
+      .from('flashcard_branches')
+      .select('id, name, parent_id')
+      .eq('user_id', userId)
+      .eq('is_deleted', false);
 
-      if (!subjects[sub]) subjects[sub] = {};
-      if (!subjects[sub][sec]) subjects[sub][sec] = {};
-      if (!subjects[sub][sec][micro]) subjects[sub][sec][micro] = [];
-      
-      subjects[sub][sec][micro].push(uc.card_id);
-    });
-
-    // Helper to find or create branch
-    const findOrCreate = async (name: string, pId: string | null): Promise<string> => {
-      const existing = existingBranches?.find(b => b.name === name && b.parent_id === pId);
-      if (existing) return existing.id;
-
-      const { data, error } = await supabase
-        .from('flashcard_branches')
-        .insert({ user_id: userId, name, parent_id: pId })
-        .select('id')
-        .single();
-      if (error) throw error;
-      return data.id;
-    };
-
-    // 4. Create branches and mappings
-    for (const [subName, sections] of Object.entries(subjects)) {
+    // 4. Repair unmapped cards
+    for (const uc of unmappedCards) {
       try {
-        const subId = await findOrCreate(subName, null);
+        const card = uc.cards as any;
+        const branchId = await this.ensureDefaultBranch(
+          userId,
+          card.subject || 'General',
+          card.section_group || 'General',
+          card.microtopic || 'General'
+        );
 
-        for (const [secName, microtopics] of Object.entries(sections as any)) {
-          const secId = await findOrCreate(secName, subId);
-
-          for (const [microName, cardIds] of Object.entries(microtopics as any)) {
-            const mtId = await findOrCreate(microName, secId);
-
-            // Map cards using upsert to avoid duplicates
-            const mappings = (cardIds as string[]).map(cardId => ({
-              branch_id: mtId,
-              card_id: cardId
-            }));
-
-            // Insert in chunks of 50 to avoid payload limits
-            for (let i = 0; i < mappings.length; i += 50) {
-              await supabase.from('flashcard_branch_cards').upsert(mappings.slice(i, i + 50));
-            }
-          }
-        }
+        await supabase.from('flashcard_branch_cards').upsert({
+          branch_id: branchId,
+          card_id: uc.card_id
+        }, { onConflict: 'branch_id,card_id' });
       } catch (err) {
-        console.error(`[FlashcardBranchSvc] Bootstrap error for subject ${subName}:`, err);
+        console.error(`[FlashcardBranchSvc] Repair error for card ${uc.card_id}:`, err);
       }
     }
-    console.log(`[FlashcardBranchSvc] Bootstrap complete.`);
+    console.log(`[FlashcardBranchSvc] Hierarchy sync complete.`);
   }
 
   static async getTree(userId: string, options: { includeArchived?: boolean } = {}): Promise<BranchNode[]> {

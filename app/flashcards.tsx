@@ -140,8 +140,8 @@ export default function FlashcardsDashboard() {
     }
 
     try {
-      // 2. Bootstrap & Fetch Tree
-      await FlashcardBranchService.bootstrapIfEmpty(userId);
+      // 2. Sync Hierarchy & Fetch Tree
+      await FlashcardBranchService.syncHierarchy(userId);
       const branches = await FlashcardBranchService.getTree(userId, { includeArchived: showArchived });
       
       // 3. Fetch Stats & Heatmap
