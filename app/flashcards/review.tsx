@@ -60,6 +60,7 @@ export default function ReviewScreen() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [showCorrect, setShowCorrect] = useState(false);
+  const [isRating, setIsRating] = useState(false);
   const [editorFontSize, setEditorFontSize] = useState(18);
   const baseFontSize = useRef(18);
   const [showZoomIndicator, setShowZoomIndicator] = useState(false);
@@ -208,44 +209,57 @@ export default function ReviewScreen() {
   };
 
   const rate = async (rating: Rating) => {
+    if (isRating) return;
     const entry = queue[currentIndex];
     if (!entry || !session?.user.id) return;
 
+    setIsRating(true);
     try {
       const result = await FlashcardLocalCache.reviewCardSafe(session.user.id, entry.card.id, rating);
       setNextDueLabel(result.delta_label);
 
       // Update card in memory for this session
-      entry.card.state = {
-        ...(entry.card.state || {}),
-        ...result,
-        next_review: result.next_review.toISOString(),
+      const updatedCard = {
+        ...entry.card,
+        state: {
+          ...(entry.card.state || {}),
+          ...result,
+          next_review: result.next_review.toISOString(),
+        }
       };
 
-      const remaining = queue.filter((_, i) => i !== currentIndex);
-      if (result.in_learning) {
-        const readyAt = Date.now() + result.delta_minutes * 60_000;
-        remaining.push({ card: entry.card, readyAt });
-      }
+      setQueue(prev => {
+        const remaining = prev.filter((item) => item.card.id !== entry.card.id);
+        
+        if (result.in_learning) {
+          const readyAt = Date.now() + result.delta_minutes * 60_000;
+          remaining.push({ card: updatedCard, readyAt });
+        }
 
-      // Sort: cards whose readyAt has passed first, then by readyAt ascending.
-      remaining.sort((a, b) => a.readyAt - b.readyAt);
-
-      setQueue(remaining);
+        // Sort: 
+        // 1. Ready cards (readyAt <= now) randomly or by original order
+        // 2. Future cards (readyAt > now) by readyAt ascending
+        const now = Date.now();
+        return [...remaining].sort((a, b) => {
+          const aReady = a.readyAt <= now;
+          const bReady = b.readyAt <= now;
+          if (aReady && !bReady) return -1;
+          if (!aReady && bReady) return 1;
+          return a.readyAt - b.readyAt;
+        });
+      });
       
-      if (remaining.length === 0) {
-        Alert.alert('Session Complete', "You've finished all cards in this session!", [
-          { text: 'Done', onPress: () => router.back() },
-        ]);
-      } else {
-        setIsFlipped(false);
-        setShowCorrect(false);
-        flipAnim.setValue(0);
-        setCurrentIndex(0); // Always point to the top of the sorted queue
-      }
+      setIsFlipped(false);
+      setShowCorrect(false);
+      flipAnim.setValue(0);
+      setCurrentIndex(0); // Always point to the top of the sorted queue
+      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     } catch (err) {
       Alert.alert('Error', 'Could not save review.');
       console.error(err);
+    } finally {
+      setIsRating(false);
     }
   };
 
@@ -343,7 +357,10 @@ export default function ReviewScreen() {
     }
   };
 
-  const currentCard = queue[currentIndex]?.card;
+  // Top-level calculations for Hooks
+  const currentEntry = queue[currentIndex];
+  const currentCard = currentEntry?.card;
+  const isReady = !currentEntry || currentEntry.readyAt <= Date.now();
 
   const cardState: SrsCardState = useMemo(() => {
     if (!currentCard) return { ease_factor: 2.5, interval_days: 0, repetitions: 0, lapses: 0, learning_step: 0, status: 'learning' };
@@ -371,8 +388,37 @@ export default function ReviewScreen() {
         <Check size={64} color={colors.primary} />
         <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Deck Clear!</Text>
         <Text style={[styles.emptySub, { color: colors.textTertiary }]}>No cards due for review in this topic.</Text>
-        <TouchableOpacity style={[styles.doneBtn, { backgroundColor: colors.primary }]} onPress={() => router.back()}>
+        <TouchableOpacity style={[styles.doneBtn, { backgroundColor: colors.primary, marginTop: 24 }]} onPress={() => router.back()}>
           <Text style={styles.doneBtnText}>Return to Dashboard</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Already handled above
+
+  if (!isReady && currentEntry) {
+    const waitMs = currentEntry.readyAt - Date.now();
+    const waitMin = Math.ceil(waitMs / 60000);
+    
+    return (
+      <View style={styles.center}>
+        <RotateCcw size={64} color={colors.textTertiary} />
+        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Take a Break!</Text>
+        <Text style={[styles.emptySub, { color: colors.textTertiary }]}>
+          Next card will be ready in {waitMin} {waitMin === 1 ? 'minute' : 'minutes'}.
+        </Text>
+        <TouchableOpacity 
+          style={[styles.doneBtn, { backgroundColor: colors.primary, marginTop: 24 }]} 
+          onPress={() => router.back()}
+        >
+          <Text style={styles.doneBtnText}>Return to Dashboard</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={{ marginTop: 16 }} 
+          onPress={() => loadQueue()}
+        >
+          <Text style={{ color: colors.primary, fontWeight: '600' }}>Refresh Queue</Text>
         </TouchableOpacity>
       </View>
     );
