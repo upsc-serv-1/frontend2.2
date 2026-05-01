@@ -30,6 +30,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { PageWrapper } from '../../src/components/PageWrapper';
 import { FlashcardSvc } from '../../src/services/FlashcardService';
+import { FlashcardBranchService } from '../../src/services/FlashcardBranchService';
 import { CardOverflowMenu, CardMenuAction } from '../../src/components/flashcards/CardOverflowMenu';
 
 interface CardItem {
@@ -81,6 +82,7 @@ export default function MicrotopicModal() {
   const currentSubject = normalizeLabel(params.subject);
   const currentSection = normalizeLabel(params.section);
   const currentMicrotopic = normalizeLabel(params.microtopic);
+  const branchId = params.branchId as string;
 
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<CardItem[]>([]);
@@ -113,25 +115,43 @@ export default function MicrotopicModal() {
 
   useEffect(() => {
     if (session?.user.id) loadCards();
-  }, [session?.user?.id, currentSubject, currentSection, currentMicrotopic]);
+  }, [session?.user?.id, currentSubject, currentSection, currentMicrotopic, branchId]);
 
   const loadCards = async () => {
+    if (!session?.user.id) return;
     setLoading(true);
     try {
-      // 1) cards in current microtopic
-      let query = supabase.from('cards').select('*').eq('subject', currentSubject).eq('microtopic', currentMicrotopic);
+      let cardIds: string[] = [];
 
-      if (currentSection === 'General') {
-        query = query.or('section_group.is.null,section_group.eq.General');
+      if (branchId) {
+        // Use new branch-based logic
+        cardIds = await FlashcardBranchService.getCardsRecursive(session.user.id, branchId);
       } else {
-        query = query.eq('section_group', currentSection);
+        // Fallback to old subject/microtopic logic
+        let query = supabase.from('cards').select('id').eq('subject', currentSubject).eq('microtopic', currentMicrotopic);
+        if (currentSection === 'General') {
+          query = query.or('section_group.is.null,section_group.eq.General');
+        } else {
+          query = query.eq('section_group', currentSection);
+        }
+        const { data: baseCards } = await query;
+        cardIds = (baseCards || []).map((c: any) => c.id);
       }
 
-      const { data: baseCards, error: bErr } = await query;
+      if (cardIds.length === 0) {
+        setCards([]);
+        setStats({ due: 0, new: 0, learning: 0, mastered: 0 });
+        return;
+      }
+
+      // 1) Fetch actual card data
+      const { data: baseCards, error: bErr } = await supabase
+        .from('cards')
+        .select('*')
+        .in('id', cardIds);
       if (bErr) throw bErr;
 
       // 2) user states for these cards
-      const cardIds = (baseCards || []).map((c: any) => c.id);
       const { data: progress, error: pErr } = await supabase
         .from('user_cards')
         .select('*')

@@ -10,8 +10,8 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
-  TextInput,
-  Animated,
+  TextInput, // Required for search and edit
+  Animated, // Required for fade animations
   Modal,
   Alert,
   AppState,
@@ -77,6 +77,7 @@ export default function FlashcardsDashboard() {
   const [showArchived, setShowArchived] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const [heatmapData, setHeatmapData] = useState<Record<string, number>>({});
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
@@ -135,7 +136,7 @@ export default function FlashcardsDashboard() {
         setLoading(true);
       }
     } else {
-      setRefreshing(true);
+      setIsRefreshing(true);
     }
 
     try {
@@ -209,7 +210,7 @@ export default function FlashcardsDashboard() {
       console.error('Load data error:', err);
     } finally {
       setLoading(false);
-      setRefreshing(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -438,7 +439,7 @@ export default function FlashcardsDashboard() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl 
-              refreshing={refreshing} 
+              refreshing={isRefreshing} 
               onRefresh={onRefresh} 
               colors={[colors.primary]}
               tintColor={colors.primary}
