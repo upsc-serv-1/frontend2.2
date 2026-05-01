@@ -499,6 +499,7 @@ export default function ReviewScreen() {
                       borderColor: colors.border,
                     },
                   ]}
+                  pointerEvents={isFlipped ? 'none' : 'auto'}
                 >
                   <Text style={[styles.cardSideLabel, { color: colors.primary }]}>QUESTION</Text>
 
@@ -733,6 +734,7 @@ export default function ReviewScreen() {
                       borderColor: `${colors.primary}40`,
                     },
                   ]}
+                  pointerEvents={isFlipped ? 'auto' : 'none'}
                 >
                   <Text style={[styles.cardSideLabel, { color: '#34c759' }]}>ANSWER & EXPLANATION</Text>
                   <ScrollView
