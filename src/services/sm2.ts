@@ -59,8 +59,10 @@ export function formatDelta(minutes: number): string {
   return `+${(days / 365).toFixed(1)}y`;
 }
 
-const clampInterval = (i: number, s: SrsSettings) =>
-  Math.min(Math.max(1, Math.round(i)), s.maxIntervalDays);
+const clampInterval = (i: number, s: SrsSettings) => {
+  const val = Number.isFinite(i) ? Math.round(i) : 1;
+  return Math.min(Math.max(1, val), s.maxIntervalDays);
+};
 
 export function applySrs(
   prev: SrsCardState,
@@ -68,7 +70,12 @@ export function applySrs(
   settings: SrsSettings = DEFAULT_SRS_SETTINGS
 ): SrsResult {
   let { ease_factor, interval_days, repetitions, lapses, learning_step, status } = prev;
-  if (!ease_factor || ease_factor < settings.minEase) ease_factor = settings.startingEase;
+  
+  // SANITY CHECK: Recover from NaN/Infinity
+  if (!Number.isFinite(ease_factor) || ease_factor < settings.minEase) ease_factor = settings.startingEase;
+  if (!Number.isFinite(interval_days)) interval_days = 0;
+  if (!Number.isFinite(repetitions)) repetitions = 0;
+  if (!Number.isFinite(lapses)) lapses = 0;
 
   let lapsed = false;
   let interval_minutes = 0;

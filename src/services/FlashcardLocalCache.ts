@@ -85,10 +85,14 @@ export const FlashcardLocalCache = {
     const result = applySrs(prev, rating, settings);
 
     // 3. Write-through Cache
+    const nextDate = result.next_review instanceof Date && !isNaN(result.next_review.getTime()) 
+      ? result.next_review 
+      : new Date();
+
     const newState = {
       ...prev,
       ...result,
-      next_review: result.next_review.toISOString(),
+      next_review: nextDate.toISOString(),
       last_reviewed: new Date().toISOString(),
       _cachedAt: new Date().toISOString(),
     };
