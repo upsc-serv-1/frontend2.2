@@ -322,6 +322,17 @@ export class FlashcardSvc {
 
     if (linkErr) throw linkErr;
 
+    // IMPORTANT: Also update the branch mapping to point to the new clone
+    try {
+      await supabase
+        .from('flashcard_branch_cards')
+        .update({ card_id: clone.id })
+        .eq('user_id', userId)
+        .eq('card_id', cardId);
+    } catch (err) {
+      console.error('[FlashcardSvc] Failed to update branch mapping during clone:', err);
+    }
+
     return clone.id as string;
   }
 

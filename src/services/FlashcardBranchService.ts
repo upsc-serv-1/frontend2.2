@@ -38,6 +38,26 @@ export class FlashcardBranchService {
     const mappedIds = new Set(existingMappings?.map(m => m.card_id) || []);
     const unmappedCards = userCards.filter(uc => !mappedIds.has(uc.card_id));
 
+    // 2.5 Clean up ghost mappings (mappings that don't belong to any user_card)
+    const allUserCardIds = new Set(userCards.map(uc => uc.card_id));
+    const { data: allMappings } = await supabase
+      .from('flashcard_branch_cards')
+      .select('card_id')
+      .eq('user_id', userId);
+    
+    const ghostIds = (allMappings || [])
+      .map(m => m.card_id)
+      .filter(id => !allUserCardIds.has(id));
+
+    if (ghostIds.length > 0) {
+      console.log(`[FlashcardBranchSvc] Found ${ghostIds.length} ghost mappings. Cleaning up...`);
+      await supabase
+        .from('flashcard_branch_cards')
+        .delete()
+        .in('card_id', ghostIds)
+        .eq('user_id', userId);
+    }
+
     if (unmappedCards.length === 0) {
       console.log(`[FlashcardBranchSvc] All ${userCards.length} cards already mapped.`);
       return;
