@@ -111,41 +111,73 @@ export class FlashcardBranchService {
     const { data: branches, error } = await query;
     if (error) throw error;
 
-    // Fetch card counts for branches
+    // Fetch all mappings for these branches at once
     const branchIds = (branches ?? []).map(b => b.id);
-    const countsMap: Record<string, number> = {};
+    const branchToCards: Record<string, Set<string>> = {};
 
     if (branchIds.length > 0) {
-      const { data: cardCounts } = await supabase
+      const { data: mappings } = await supabase
         .from('flashcard_branch_cards')
-        .select('branch_id, user_cards!inner(id)')
+        .select('branch_id, card_id, user_cards!inner(id)')
         .in('branch_id', branchIds)
         .eq('user_id', userId);
 
-      cardCounts?.forEach(c => {
-        countsMap[c.branch_id] = (countsMap[c.branch_id] || 0) + 1;
+      mappings?.forEach(m => {
+        if (!branchToCards[m.branch_id]) branchToCards[m.branch_id] = new Set();
+        branchToCards[m.branch_id].add(m.card_id);
       });
     }
 
-    // Build the tree
+    // Build the tree with unique card counts
     const buildTree = (parentId: string | null = null, level = 0): BranchNode[] => {
       return (branches ?? [])
         .filter(b => b.parent_id === parentId)
         .map(b => {
           const children = buildTree(b.id, level + 1);
-          const leafCount = countsMap[b.id] || 0;
-          const totalCount = leafCount + children.reduce((acc, c) => acc + (c.cardCount || 0), 0);
           
+          // Get all unique card IDs for this branch and its descendants
+          const uniqueIds = new Set(branchToCards[b.id] || []);
+          const gatherIds = (nodes: BranchNode[]) => {
+            nodes.forEach(n => {
+              // We need to re-fetch the specific IDs for this child to be accurate
+              // but as an optimization, we can pass them up.
+              // For simplicity, we'll just track all IDs in the node object.
+            });
+          };
+
+          // Actually, let's just use a more efficient way: 
+          // Each node will return its set of unique IDs.
           return {
             ...b,
             level,
             children,
-            cardCount: totalCount
+            // We'll compute the count by collecting all child IDs
+            _allCardIds: combineIds(b.id, children)
           };
         });
     };
 
-    return buildTree(null);
+    const combineIds = (branchId: string, children: any[]): Set<string> => {
+      const s = new Set(branchToCards[branchId] || []);
+      children.forEach(c => {
+        c._allCardIds.forEach((id: string) => s.add(id));
+      });
+      return s;
+    };
+
+    const tree = buildTree(null);
+    
+    // Final pass to set cardCount and remove the temporary _allCardIds
+    const finalize = (nodes: any[]) => {
+      nodes.forEach(n => {
+        n.cardCount = n._allCardIds.size;
+        delete n._allCardIds;
+        finalize(n.children);
+      });
+    };
+    finalize(tree);
+
+    return tree;
   }
 
   static async createBranch(userId: string, name: string, parentId: string | null = null) {
