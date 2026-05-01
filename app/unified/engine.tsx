@@ -58,7 +58,8 @@ import {
   Italic,
   Underline,
   Highlighter,
-  Sparkles
+  Sparkles,
+  Hash
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';

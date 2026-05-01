@@ -13,7 +13,8 @@ import {
   TextInput,
   Animated,
   Modal,
-  Alert
+  Alert,
+  AppState
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
@@ -90,6 +91,15 @@ export default function FlashcardsDashboard() {
       if (userId) loadData();
     }, [userId])
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active' && userId) {
+        loadData(true); // Bypass cache on resume to get latest
+      }
+    });
+    return () => subscription.remove();
+  }, [userId]);
 
   useEffect(() => {
     if (!loading) {

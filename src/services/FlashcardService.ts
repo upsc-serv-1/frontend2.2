@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { applySM2 } from './sm2';
+import { FlashcardBranchService } from './FlashcardBranchService';
 
 export type CardSource =
   | { kind: 'question'; question_id: string }
@@ -114,6 +115,7 @@ export class FlashcardSvc {
     // Link in user_cards (idempotent)
     const { data: existing } = await supabase
       .from('user_cards').select('id').eq('user_id', userId).eq('card_id', card!.id).maybeSingle();
+    
     if (!existing) {
       const { error } = await supabase.from('user_cards').insert({
         user_id: userId, card_id: card!.id,
@@ -121,6 +123,23 @@ export class FlashcardSvc {
         next_review: new Date().toISOString(), status: 'new',
       });
       if (error) throw error;
+    }
+
+    // --- NEW: Map to Branch Tree ---
+    try {
+      const branchId = await FlashcardBranchService.ensureDefaultBranch(
+        userId, 
+        input.subject || 'General', 
+        input.section_group || 'General', 
+        input.microtopic || 'General'
+      );
+      
+      await supabase.from('flashcard_branch_cards').upsert({
+        branch_id: branchId,
+        card_id: card!.id
+      }, { onConflict: 'branch_id,card_id' });
+    } catch (err) {
+      console.error('[FlashcardSvc] Error mapping to branch:', err);
     }
 
     return card!.id;
