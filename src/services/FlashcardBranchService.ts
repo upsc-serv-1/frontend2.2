@@ -119,7 +119,7 @@ export class FlashcardBranchService {
     if (branchIds.length > 0) {
       const { data: mappings } = await supabase
         .from('flashcard_branch_cards')
-        .select('branch_id, card_id, user_cards!inner(id)')
+        .select('branch_id, card_id, cards!inner(id)')
         .in('branch_id', branchIds)
         .eq('user_id', userId);
 
@@ -241,7 +241,7 @@ export class FlashcardBranchService {
     // Only return cards that actually exist in the user's collection
     const { data: mappings } = await supabase
       .from('flashcard_branch_cards')
-      .select('card_id, user_cards!inner(id)')
+      .select('card_id, cards!inner(id)')
       .in('branch_id', ids)
       .eq('user_id', userId);
     
