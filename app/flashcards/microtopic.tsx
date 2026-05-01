@@ -11,6 +11,7 @@ import {
   Modal,
   ScrollView,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -114,14 +115,22 @@ export default function MicrotopicModal() {
     microtopicsMap: Record<string, string[]>;
   }>({ sectionsMap: {}, microtopicsMap: {} });
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   useEffect(() => {
     if (session?.user.id) loadCards();
   }, [session?.user?.id, currentSubject, currentSection, currentMicrotopic, branchId]);
 
-  const loadCards = async () => {
+  const loadCards = async (refreshing = false) => {
     if (!session?.user.id) return;
-    setLoading(true);
+    if (refreshing) setIsRefreshing(true);
+    else setLoading(true);
+    
     try {
+      if (refreshing) {
+        await FlashcardBranchService.syncHierarchy(session.user.id);
+      }
+
       let cardIds: string[] = [];
 
       if (branchId) {
@@ -164,18 +173,21 @@ export default function MicrotopicModal() {
       const progressMap = new Map<string, any>();
       progress?.forEach((p: any) => progressMap.set(p.card_id, p));
 
-      const merged: CardItem[] = (baseCards || []).map((bc: any) => {
-        const p = progressMap.get(bc.id);
-        return {
-          id: bc.id,
-          front_text: bc.front_text || bc.question_text || '',
-          back_text: bc.back_text || bc.answer_text || '',
-          status: p?.status || 'active',
-          learning_status: p?.learning_status || 'not_studied',
-          next_review: p?.next_review,
-          updated_at: p?.updated_at || bc.created_at,
-        };
-      });
+      // Filter: only show cards that HAVE a user_cards entry (the user owns them)
+      const merged: CardItem[] = (baseCards || [])
+        .filter((bc: any) => progressMap.has(bc.id))
+        .map((bc: any) => {
+          const p = progressMap.get(bc.id);
+          return {
+            id: bc.id,
+            front_text: bc.front_text || bc.question_text || '',
+            back_text: bc.back_text || bc.answer_text || '',
+            status: p?.status || 'active',
+            learning_status: p?.learning_status || 'not_studied',
+            next_review: p?.next_review,
+            updated_at: p?.updated_at || bc.updated_at || bc.created_at,
+          };
+        });
 
       const visible = merged.filter((c) => c.status !== 'deleted');
       setCards(visible);
@@ -192,6 +204,7 @@ export default function MicrotopicModal() {
       Alert.alert('Error', 'Could not load cards');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -674,7 +687,17 @@ export default function MicrotopicModal() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={() => loadCards(true)}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           <View style={styles.statsPanel}>
             <View style={styles.statsRow}>
               <StatItem 
