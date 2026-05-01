@@ -21,6 +21,27 @@ export class FlashcardBranchService {
   static async syncHierarchy(userId: string) {
     console.log(`[FlashcardBranchSvc] Syncing hierarchy for user: ${userId}`);
     
+    // 0. Backfill NULL user_ids in mappings for this user's branches
+    try {
+      const { data: myBranches } = await supabase
+        .from('flashcard_branches')
+        .select('id')
+        .eq('user_id', userId);
+      
+      const bIds = myBranches?.map(b => b.id) || [];
+      if (bIds.length > 0) {
+        const { error: backfillErr } = await supabase
+          .from('flashcard_branch_cards')
+          .update({ user_id: userId })
+          .in('branch_id', bIds)
+          .is('user_id', null);
+        
+        if (backfillErr) console.warn('[FlashcardBranchSvc] Backfill warning:', backfillErr.message);
+      }
+    } catch (e) {
+      console.error('[FlashcardBranchSvc] Backfill error:', e);
+    }
+
     // 1. Get all user cards
     const { data: userCards, error: ucError } = await supabase
       .from('user_cards')
